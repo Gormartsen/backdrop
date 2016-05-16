@@ -171,6 +171,7 @@ if ($args['list']) {
   exit(0);
 }
 
+
 // Generate cache tables for profiles.
 if ($args['cache']) {
   $profiles = array(
@@ -189,7 +190,53 @@ if ($args['cache']) {
   }
 }
 
+
 $test_list = simpletest_script_get_test_list();
+
+//Report to ZenCI that testing started.
+if ($args['zenci']) {
+  simpletest_script_zenci_report('start');
+}
+
+function simpletest_script_zenci_report($stage) {
+  global $test_list;
+  
+  $token = getenv('GITLC_API_TOKEN');
+  $script = getenv('GITLC_STATUS_URL');
+  
+  if(empty($token) || empty($script)){
+    return FALSE;
+  }
+  
+  $data = NULL;
+  switch($stage){
+    case 'start':
+      $data = array(
+        'state' => 'pending',
+        'message' => count($test_list) . ' tests to process',
+      );
+      break;
+  }
+  
+  if($data){
+    $data = json_encode($data);
+    
+    $options = array(
+      'method' => 'PUT',
+      'max_redirects' => 10,
+      'headers' => array(
+        'Content-Type' => 'application/json',
+        'Accept' => 'application/json',
+        'Token' => $token,
+      ),
+      'timeout' => 600,
+      'data' => $data,
+    );
+  
+    $result = drupal_http_request($script, $options);
+  }
+    
+}
 
 // Try to allocate unlimited time to run the tests.
 backdrop_set_time_limit(0);
@@ -279,6 +326,8 @@ All arguments are long options.
 
   --cache     Generate cache for instalation profiles to boost tests speed.
 
+  --zenci     Report to ZenCI with status.
+
   <test1>[ <test2>[ <test3> ...]]
 
               One or more tests classes (or groups names) to be run. Names may
@@ -324,6 +373,7 @@ function simpletest_script_parse_args() {
     'test-id' => 0,
     'execute-test' => '',
     'xml' => '',
+    'zenci' => FALSE,
   );
 
   // Override with set values.

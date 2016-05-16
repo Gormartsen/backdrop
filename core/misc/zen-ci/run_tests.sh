@@ -7,4 +7,4 @@ SITEPATH="$HOME/www"
 echo "Full site path: $SITEPATH"
 cd $SITEPATH
 
-php core/scripts/run-tests.sh --url http://localhost --verbose --cache --force --all --concurrency 10 --color --verbose
+php core/scripts/run-tests.sh --url http://localhost --verbose --cache --force --all --concurrency 10 --color --verbose --zenci
