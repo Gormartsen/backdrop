@@ -216,6 +216,44 @@ function simpletest_script_zenci_report($stage) {
         'message' => count($test_list) . ' tests to process',
       );
       break;
+    case 'stop':
+        $summary = '';
+        $results = db_query("SELECT * FROM {simpletest} WHERE test_id = :test_id AND (status = 'exception' OR status = 'fail') ORDER BY test_class, message_id", array(':test_id' => $test_id));
+        $test_class = '';
+        $count = 0;
+        foreach ($results as $result) {
+          if (isset($results_map[$result->status])) {
+            if ($result->test_class != $test_class) {
+              // Display test class every time results are for new test class.
+              $test_class = $result->test_class;
+              $info = simpletest_test_get_by_class($test_class);
+              $test_group = $info['group'];
+              $test_name = $info['name'];
+              $summary .= "$test_group: $test_name ($test_class)\n";
+              $test_class = $result->test_class;
+            }
+            
+            $summary .= " - [" . $result->status . "] " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line;
+            $count++;
+          }
+        }
+        
+        if(!empty($summary)){
+          $data = array(
+            'state' => 'error',
+            'message' => $count . ' tests failed',
+            'summary' => $summary,
+          );
+        } 
+        else{
+          $data = array(
+            'state' => 'success',
+            'message' => count($test_list) . ' tests passed',
+            'summary' => $summary,
+          );
+          
+        }
+      break;
   }
   
   if($data){
@@ -265,6 +303,10 @@ simpletest_script_reporter_display_results();
 
 if ($args['xml']) {
   simpletest_script_reporter_write_xml_results();
+}
+
+if ($args['zenci']) {
+  simpletest_script_zenci_report('stop');
 }
 
 // Cleanup our test results.

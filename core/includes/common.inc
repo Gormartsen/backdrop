@@ -2953,7 +2953,9 @@ function backdrop_page_footer() {
     }
     // Flushing for Apache mod_php installations.
     else {
+      ob_flush();
       flush();
+      ob_end_flush();
     }
   }
 
