@@ -199,7 +199,7 @@ if ($args['zenci']) {
 }
 
 function simpletest_script_zenci_report($stage) {
-  global $test_list;
+  global $test_list, $args, $test_id, $results_map;
   
   $token = getenv('GITLC_API_TOKEN');
   $script = getenv('GITLC_STATUS_URL');
