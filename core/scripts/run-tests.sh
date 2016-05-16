@@ -198,7 +198,7 @@ if ($args['zenci']) {
   simpletest_script_zenci_report('start');
 }
 
-function simpletest_script_zenci_report($stage) {
+function simpletest_script_zenci_report($stage, $message = FALSE) {
   global $test_list, $args, $test_id, $results_map;
   
   $token = getenv('GITLC_API_TOKEN');
@@ -210,6 +210,14 @@ function simpletest_script_zenci_report($stage) {
   
   $data = NULL;
   switch($stage){
+    case 'state':
+      if($status){
+        $data = array(
+          'state' => 'pending',
+          'message' => $message,
+        );        
+      }
+      break;
     case 'start':
       $data = array(
         'state' => 'pending',
