@@ -233,7 +233,7 @@ function simpletest_script_zenci_report($stage) {
               $test_class = $result->test_class;
             }
             
-            $summary .= " - [" . $result->status . "] " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line;
+            $summary .= " - `" . $result->status . "` " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line . "\n";
             $count++;
           }
         }
