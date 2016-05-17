@@ -237,7 +237,7 @@ function simpletest_script_zenci_report($stage, $message = FALSE) {
               $info = simpletest_test_get_by_class($test_class);
               $test_group = $info['group'];
               $test_name = $info['name'];
-              $summary .= "$test_group: $test_name ($test_class)\n";
+              $summary .= "\n$test_group: $test_name ($test_class)\n";
               $test_class = $result->test_class;
             }
             
