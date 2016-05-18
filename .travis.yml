@@ -33,7 +33,7 @@ before_script:
   - phpenv config-add core/misc/travis-ci/php.ini
   
   # test php settings
-  - php -i
+  - curl -v http://localhost/info.php
 
   # Create a RAM disk for MySQL to improve performance.
   - sudo mkdir /mnt/ramdisk
