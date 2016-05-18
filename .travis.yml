@@ -34,6 +34,8 @@ before_script:
   
   # test php settings
   - curl -v http://localhost/info.php
+  - cat $HOME/.phpenv/versions/$(phpenv version-name)/etc/php.ini
+  - cat $HOME/.phpenv/versions/$(phpenv version-name)/etc/conf.d/*.ini
 
   # Create a RAM disk for MySQL to improve performance.
   - sudo mkdir /mnt/ramdisk
