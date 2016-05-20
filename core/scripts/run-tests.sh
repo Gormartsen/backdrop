@@ -249,14 +249,14 @@ function simpletest_script_zenci_report($stage, $message = FALSE) {
         if(!empty($summary)){
           $data = array(
             'state' => 'error',
-            'message' => $count . ' tests failed',
+            'message' => format_plural($count, '1 test failed', '@count tests failed.'),
             'summary' => $summary,
           );
         } 
         else{
           $data = array(
             'state' => 'success',
-            'message' => count($test_list) . ' tests passed',
+            'message' => format_plural(count($test_list), '1 test passed', '@count tests passed.'),
             'summary' => $summary,
           );
           
