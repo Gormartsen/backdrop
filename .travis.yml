@@ -4,7 +4,7 @@ sudo: required
 dist: precise
 group: legacy
 php:
-  - 5.3
+  - nightly
   - 7.0
 # Split the execution of our tests into 4 separate builds.
 env:
