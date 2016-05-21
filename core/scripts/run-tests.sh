@@ -241,9 +241,15 @@ function simpletest_script_zenci_report($stage, $message = FALSE) {
               $test_class = $result->test_class;
             }
             
-            $summary .= " - `" . $result->status . "` " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line . "\n";
+            if($count < 10 ){
+              $summary .= " - `" . $result->status . "` " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line . "\n";
+            }
             $count++;
           }
+        }
+        
+        if($count > 10 ){
+          $summary .= "\nResult limited to first 10 items. See log for more details\n";
         }
         
         if(!empty($summary)){
