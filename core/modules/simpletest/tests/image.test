@@ -320,6 +320,7 @@ class ImageToolkitGdTestCase extends BackdropWebTestCase {
 
     // Systems using non-bundled GD2 don't have imagerotate. Test if available.
     if (function_exists('imagerotate')) {
+      echo "imagerotate exists\n";
       $operations += array(
         'rotate_5' => array(
           'function' => 'rotate',
@@ -354,6 +355,7 @@ class ImageToolkitGdTestCase extends BackdropWebTestCase {
 
     // Systems using non-bundled GD2 don't have imagefilter. Test if available.
     if (function_exists('imagefilter')) {
+      echo "imagefilter exists\n";
       $operations += array(
         'desaturate' => array(
           'function' => 'desaturate',
