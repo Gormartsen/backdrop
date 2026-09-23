@@ -30,7 +30,10 @@ class TokenReplaceTestCase extends BackdropWebTestCase {
 
     $target  = check_plain($node->title);
     $target .= check_plain($account->name);
-    $target .= format_interval(REQUEST_TIME - $node->created, 2, $language->langcode);
+    $target .= format_time_diff_since($node->created, array(
+      'granularity' => 2,
+      'langcode' => $language->langcode,
+    ));
     $target .= check_plain($user->name);
     $target .= format_date(REQUEST_TIME, 'short', '', NULL, $language->langcode);
 
@@ -82,7 +85,7 @@ class TokenReplaceTestCase extends BackdropWebTestCase {
     // Check if the token is recognized in each of the contexts.
     foreach ($tests as $test) {
       $input = $test['prefix'] . '[site:name]' . $test['suffix'];
-      $expected = $test['prefix'] . 'Backdrop' . $test['suffix'];
+      $expected = $test['prefix'] . 'Backdrop CMS' . $test['suffix'];
       $output = token_replace($input, array(), array('language' => $language));
       $this->assertTrue($output == $expected, format_string('Token recognized in string %string', array('%string' => $input)));
     }
@@ -106,8 +109,8 @@ class TokenReplaceTestCase extends BackdropWebTestCase {
 
     // Generate and test sanitized tokens.
     $tests = array();
-    $tests['[site:name]'] = check_plain(config_get('system.core', 'site_name'));
-    $tests['[site:slogan]'] = check_plain(config_get('system.core', 'site_slogan'));
+    $tests['[site:name]'] = check_plain(config_get_translated('system.core', 'site_name'));
+    $tests['[site:slogan]'] = check_plain(config_get_translated('system.core', 'site_slogan'));
     $tests['[site:mail]'] = 'simpletest@example.com';
     $tests['[site:url]'] = url('<front>', $url_options);
     $tests['[site:url-brief]'] = preg_replace(array('!^https?://!', '!/$!'), '', url('<front>', $url_options));
@@ -123,8 +126,8 @@ class TokenReplaceTestCase extends BackdropWebTestCase {
     }
 
     // Generate and test unsanitized tokens.
-    $tests['[site:name]'] = config_get('system.core', 'site_name');
-    $tests['[site:slogan]'] = config_get('system.core', 'site_slogan');
+    $tests['[site:name]'] = config_get_translated('system.core', 'site_name');
+    $tests['[site:slogan]'] = config_get_translated('system.core', 'site_slogan');
 
     foreach ($tests as $input => $expected) {
       $output = token_replace($input, array(), array('language' => $language, 'sanitize' => FALSE));
@@ -147,7 +150,10 @@ class TokenReplaceTestCase extends BackdropWebTestCase {
     $tests['[date:medium]'] = format_date($date, 'medium', '', NULL, $language->langcode);
     $tests['[date:long]'] = format_date($date, 'long', '', NULL, $language->langcode);
     $tests['[date:custom:m/j/Y]'] = format_date($date, 'custom', 'm/j/Y', NULL, $language->langcode);
-    $tests['[date:since]'] = format_interval((REQUEST_TIME - $date), 2, $language->langcode);
+    $tests['[date:since]'] = format_time_diff_since($date, array(
+      'granularity' => 2,
+      'langcode' => $language->langcode,
+    ));
     $tests['[date:raw]'] = filter_xss($date);
 
     // Test to make sure that we generated something for each token.
@@ -207,7 +213,10 @@ class TokenTestHelper extends BackdropWebTestCase {
     foreach ($tokens as $name => $expected) {
       $token = $input[$name];
       if (!isset($expected)) {
-        $this->assertTrue(!isset($values[$token]), t("Token value for @token was not generated.", array('@type' => $type, '@token' => $token)));
+        $this->assertTrue(!isset($replacements[$token]), t("Token value for @token was not generated.", array(
+          '@type' => $type,
+          '@token' => $token,
+        )));
       }
       elseif (!isset($replacements[$token])) {
         $this->fail(t("Token value for @token was not generated.", array('@type' => $type, '@token' => $token)));
@@ -406,9 +415,16 @@ class TokenCommentTestCase extends TokenTestHelper {
   }
 
   function testCommentTokens() {
-    $node = $this->backdropCreateNode(array('comment' => COMMENT_NODE_OPEN));
+    $content_type = $this->backdropCreateContentType(array(
+      'comment_enabled' => TRUE,
+    ));
+    $node = $this->backdropCreateNode(array(
+      'comment' => COMMENT_NODE_OPEN,
+      'type' => $content_type->type,
+    ));
 
-    $parent_comment = new Comment();
+    /** @var Comment $parent_comment */
+    $parent_comment = entity_create('comment', array());
     $parent_comment->nid = $node->nid;
     $parent_comment->pid = 0;
     $parent_comment->cid = NULL;
@@ -430,7 +446,8 @@ class TokenCommentTestCase extends TokenTestHelper {
     );
     $this->assertTokens('comment', array('comment' => $parent_comment), $tokens);
 
-    $comment = new Comment();
+    /** @var Comment $comment */
+    $comment = entity_create('comment', array());
     $comment->nid = $node->nid;
     $comment->pid = $parent_comment->cid;
     $comment->cid = NULL;
@@ -460,12 +477,14 @@ class TokenNodeTestCase extends TokenTestHelper {
     $this->backdropLogin($admin_user);
 
     $files = $this->backdropGetTestFiles('image');
-    $file = new File((array) $files[0]);
+    /** @var File $file */
+    $file = entity_create('file', (array) $files[0]);
     $file->uid = $admin_user->uid;
     $file->save();
     $node_title = $this->randomName();
     $node_edit = array(
       'title' => $node_title,
+      'path[auto]' => FALSE,
       'path[alias]' => 'content/source-node',
       'field_tags[und]' => 'foo, bar',
       'field_image[und][0][fid]' => $file->fid,
@@ -485,7 +504,7 @@ class TokenNodeTestCase extends TokenTestHelper {
       'content-type:name' => 'Post',
       'content-type:machine-name' => 'post',
       'content-type:description' => "Add a blog post, news article, or press release.",
-      'content-type:node-count' => 1,
+      'content-type:node-count' => 2,
       'content-type:edit-url' => url('admin/structure/types/manage/post', array('absolute' => TRUE)),
       'field_image' => file_create_url($file->uri),
       'field_tags' => 'foo, bar',
@@ -505,7 +524,7 @@ class TokenNodeTestCase extends TokenTestHelper {
       'source' => $source_node->title,
       'source:nid' => $source_node->nid,
       'log' => '',
-      'url:path' => "node/{$translated_node->nid}",
+      'url:path' => $translated_node->path['alias'],
       'url:absolute' => url("node/{$translated_node->nid}", array('absolute' => TRUE)),
       'url:relative' => url("node/{$translated_node->nid}", array('absolute' => FALSE)),
       'url:unaliased:path' => "node/{$translated_node->nid}",
@@ -513,13 +532,13 @@ class TokenNodeTestCase extends TokenTestHelper {
       'content-type:name' => 'Post',
       'content-type:machine-name' => 'post',
       'content-type:description' => "Add a blog post, news article, or press release.",
-      'content-type:node-count' => 2,
+      'content-type:node-count' => 3,
       'content-type:edit-url' => url('admin/structure/types/manage/post', array('absolute' => TRUE)),
       // Deprecated tokens.
       'type' => 'post',
       'type-name' => 'Post',
       'tnid' => $source_node->nid,
-      'url:alias' => "node/{$translated_node->nid}",
+      'url:alias' => $translated_node->path['alias'],
     );
     $this->assertTokens('node', array('node' => $translated_node), $tokens);
   }
@@ -558,7 +577,7 @@ class TokenMenuTestCase extends TokenTestHelper {
       'menu:name' => 'Primary navigation',
       'menu:machine-name' => 'main-menu',
       'menu:description' => 'The <em>Primary navigation</em> menu is used on many sites to show the major sections of the site, often in a top navigation bar.',
-      'menu:menu-link-count' => 11,
+      'menu:menu-link-count' => 2,
       'menu:edit-url' => url("admin/structure/menu/manage/main-menu", array('absolute' => TRUE)),
       'url' => url('root/parent', array('absolute' => TRUE)),
       'url:absolute' => url('root/parent', array('absolute' => TRUE)),
@@ -598,7 +617,7 @@ class TokenMenuTestCase extends TokenTestHelper {
       'menu-link:title' => 'Node link',
       'menu-link:menu' => 'Primary navigation',
       'menu-link:url' => url('node/' . $node->nid, array('absolute' => TRUE)),
-      'menu-link:url:path' => 'node/' . $node->nid,
+      'menu-link:url:path' => $node->path['alias'],
       'menu-link:edit-url' => url("admin/structure/menu/item/{$node->menu['mlid']}/edit", array('absolute' => TRUE)),
       'menu-link:parent' => 'Parent link',
       'menu-link:parent:mlid' => $node->menu['plid'],
@@ -708,13 +727,14 @@ class TokenTaxonomyTestCase extends TokenTestHelper {
     return $vocabulary;
   }
 
-  function addTerm(TaxonomyVocabulary $vocabulary, array $term = array()) {
-    $term += array(
+  function addTerm(TaxonomyVocabulary $vocabulary, array $term_parameters = array()) {
+    $term_parameters += array(
       'name' => backdrop_strtolower($this->randomName(5)),
       'vocabulary' => $vocabulary->machine_name,
       'parent' => array(0),
     );
-    $term = new TaxonomyTerm($term);
+    /** @var TaxonomyTerm $term */
+    $term = entity_create('taxonomy_term', $term_parameters);
     taxonomy_term_save($term);
     return $term;
   }
@@ -795,6 +815,11 @@ class TokenUserTestCase extends TokenTestHelper {
 
 class TokenEntityTestCase extends TokenTestHelper {
 
+  /**
+   * @var TaxonomyVocabulary
+   */
+  protected $vocab;
+
   public function setUp($modules = array()) {
     $modules[] = 'taxonomy';
     parent::setUp($modules);
@@ -808,13 +833,14 @@ class TokenEntityTestCase extends TokenTestHelper {
     $this->vocab = $vocabulary;
   }
 
-  function addTerm(TaxonomyVocabulary $vocabulary, array $term = array()) {
-    $term += array(
+  function addTerm(TaxonomyVocabulary $vocabulary, array $term_parameters = array()) {
+    $term_parameters += array(
       'name' => backdrop_strtolower($this->randomName(5)),
       'vocabulary' => $vocabulary->machine_name,
       'parents' => array(0),
     );
-    $term = new TaxonomyTerm($term);
+    /** @var TaxonomyTerm $term */
+    $term = entity_create('taxonomy_term', $term_parameters);
     $term->save();
     return $term;
   }
@@ -857,20 +883,20 @@ class TokenCurrentPageTestCase extends TokenTestHelper {
 
   function testCurrentPageTokens() {
     $tokens = array(
-      '[current-page:title]' => t('Welcome to @site-name', array('@site-name' => config_get('system.core', 'site_name'))),
-      '[current-page:url]' => url('node', array('absolute' => TRUE)),
-      '[current-page:url:absolute]' => url('node', array('absolute' => TRUE)),
-      '[current-page:url:relative]' => url('node', array('absolute' => FALSE)),
-      '[current-page:url:path]' => 'node',
-      '[current-page:url:args:value:0]' => 'node',
+      '[current-page:title]' => t('Home', array('@site-name' => config_get('system.core', 'site_name'))),
+      '[current-page:url]' => url('home', array('absolute' => TRUE)),
+      '[current-page:url:absolute]' => url('home', array('absolute' => TRUE)),
+      '[current-page:url:relative]' => url('home', array('absolute' => FALSE)),
+      '[current-page:url:path]' => 'home',
+      '[current-page:url:args:value:0]' => 'home',
       '[current-page:url:args:value:1]' => NULL,
-      '[current-page:url:unaliased]' => url('node', array('absolute' => TRUE, 'alias' => TRUE)),
+      '[current-page:url:unaliased]' => url('home', array('absolute' => TRUE, 'alias' => TRUE)),
       '[current-page:page-number]' => 1,
       '[current-page:query:foo]' => NULL,
       '[current-page:query:bar]' => NULL,
-      '[current-page:query:q]' => 'node',
+      '[current-page:query:q]' => 'home',
       // Deprecated tokens
-      '[current-page:arg:0]' => 'node',
+      '[current-page:arg:0]' => 'home',
       '[current-page:arg:1]' => NULL,
     );
     $this->assertPageTokens('', $tokens);
@@ -897,10 +923,10 @@ class TokenCurrentPageTestCase extends TokenTestHelper {
       '[current-page:page-number]' => 1,
       '[current-page:query:foo]' => 'bar',
       '[current-page:query:bar]' => NULL,
-      '[current-page:query:q]' => 'node/1',
+      '[current-page:query:q]' => 'node/' . $node->nid,
       // Deprecated tokens
       '[current-page:arg:0]' => 'node',
-      '[current-page:arg:1]' => 1,
+      '[current-page:arg:1]' => $node->nid,
       '[current-page:arg:2]' => NULL,
     );
     $this->assertPageTokens("node/{$node->nid}", $tokens, array(), array('url_options' => array('query' => array('foo' => 'bar'))));
@@ -963,7 +989,8 @@ class TokenFileTestCase extends TokenTestHelper {
 
   function testFileTokens() {
     // Create a test file object.
-    $file = new File();
+    /** @var File $file */
+    $file = entity_create('file', array());
     $file->fid = 1;
     $file->filename = 'test.png';
     $file->filesize = 100;

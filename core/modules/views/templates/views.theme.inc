@@ -1,8 +1,7 @@
 <?php
-
 /**
  * @file
- * Preprocessors and helper functions to make theming easier.
+ * Preprocessors and helper functions to make theme development easier.
  */
 
 /**
@@ -21,7 +20,7 @@ function _views_theme_functions($hook, $view, $display = NULL) {
   if ($display) {
     $themes[] = $hook . '__' . $view->name . '__' . $display->id;
     $themes[] = $hook . '__' . $display->id;
-    $themes[] = $hook . '__' . preg_replace('/[^a-z0-9]/', '_', strtolower($view->tag));
+    $themes[] = $hook . '__' . preg_replace('/[^a-z0-9]/', '_', strtolower((string) $view->tag));
 
     // Add theme suggestions foreach single tag.
     foreach (backdrop_explode_tags($view->tag) as $tag) {
@@ -57,7 +56,7 @@ function template_preprocess_views_view(&$variables) {
 
   $variables['classes'] = array();
   $variables['classes'][] = 'view';
-  $variables['classes'][] = 'view-' . backdrop_clean_css_identifier($variables['name']);
+  $variables['classes'][] = 'view-' . $variables['css_name'];
   $variables['classes'][] = 'view-id-' . $variables['name'];
   $variables['classes'][] = 'view-display-id-' . $variables['display_id'];
 
@@ -86,7 +85,7 @@ function template_preprocess_views_view(&$variables) {
   $variables['title'] = !empty($view->views_ui_context) ? filter_xss_admin($view->get_title()) : '';
 
   if ($view->display_handler->render_pager()) {
-    $exposed_input = isset($view->exposed_raw_input) ? $view->exposed_raw_input : NULL;
+    $exposed_input = $view->get_exposed_input();
     $variables['pager']      = $view->query->render_pager($exposed_input);
   }
 
@@ -119,6 +118,7 @@ function template_preprocess_views_view(&$variables) {
 
   // If using AJAX, send identifying data about this view.
   if ($view->use_ajax && empty($view->is_attachment) && empty($view->live_preview)) {
+
     $settings = array(
       'views' => array(
         'ajax_path' => url('views/ajax'),
@@ -129,16 +129,32 @@ function template_preprocess_views_view(&$variables) {
             'view_args' => check_plain(implode('/', $view->args)),
             'view_path' => check_plain($_GET['q']),
             // Pass through URL to ensure we get e.g. language prefixes.
-//            'view_base_path' => isset($view->display['page']) ? substr(url($view->display['page']->display_options['path']), strlen($base_path)) : '',
             'view_base_path' => $view->get_path(),
             'view_dom_id' => $variables['dom_id'],
             // To fit multiple views on a page, the programmer may have
             // overridden the display's pager_element.
             'pager_element' => isset($view->query->pager) ? $view->query->pager->get_pager_id() : 0,
+            'exposed_form_in_block' => $view->display_handler->get_option('exposed_block'),
+            'enable_ajax_history' => $view->display_handler->get_option('enable_ajax_history'),
+            'render_page_item' => isset($_GET['page']) ? $_GET['page'] : 0,
           ),
         ),
       ),
     );
+
+    if ($view->display_handler->get_option('exclude_ajax_args')) {
+      $arguments_to_exclude = preg_split('/[\n\r\s]+/', $view->display_handler->get_option('exclude_ajax_args') ?? '');
+      // Filter empty lines and add to settings.
+      $settings['views']['ajaxViews']['views_dom_id:' . $variables['dom_id']]['exclude_ajax_args'] = $arguments_to_exclude;
+    }
+
+    if (backdrop_is_html()) {
+      $exposed = $view->get_exposed_input();
+      $dom_id = $view->dom_id;
+      foreach ($exposed as $key => $value) {
+        $settings['initial_ajax_exposed_input']['views_dom_id:' . $dom_id][$key] = $value;
+      }
+    }
 
     backdrop_add_js($settings, 'setting');
     views_add_js('ajax_view');
@@ -478,14 +494,14 @@ function template_preprocess_views_view_table(&$variables) {
   $renders = $handler->render_fields($result);
 
   foreach ($columns as $field => $column) {
-    // Create a second variable so we can easily find what fields we have and what the
+    // Create a second variable so we can find what fields we have and what the
     // CSS classes should be.
     $variables['fields'][$field] = backdrop_clean_css_identifier($field);
     if ($active == $field) {
       $variables['fields'][$field] .= ' active';
     }
 
-    // render the header labels
+    // Render the header labels.
     if ($field == $column && empty($fields[$field]->options['exclude'])) {
       $label = check_plain(!empty($fields[$field]) ? $fields[$field]->label() : '');
       if (empty($options['info'][$field]['sortable']) || !$fields[$field]->click_sortable()) {
@@ -507,7 +523,11 @@ function template_preprocess_views_view_table(&$variables) {
         $query['sort'] = $initial;
         $link_options = array(
           'html' => TRUE,
-          'attributes' => array('title' => $title),
+          'attributes' => array(
+            'title' => $title,
+            'data-sort' => $order,
+            'data-order' => $field,
+          ),
           'query' => $query,
         );
         $variables['header'][$field] = l($label, $_GET['q'], $link_options);
@@ -526,6 +546,10 @@ function template_preprocess_views_view_table(&$variables) {
       // Add a CSS align class to each field if one was set
       if (!empty($options['info'][$field]['align'])) {
         $variables['header_classes'][$field][] = backdrop_clean_css_identifier($options['info'][$field]['align']);
+      }
+      // Set up responsive header class.
+      if (!empty($options['info'][$field]['responsive'])) {
+        $variables['header_classes'][$field][] = $options['info'][$field]['responsive'];
       }
       // Add active class.
       if ($active == $field) {
@@ -691,111 +715,222 @@ function template_preprocess_views_view_grid(&$variables) {
   $rows = array();
   $row_indexes = array();
 
-  if ($options['alignment'] == 'horizontal') {
-    $row = array();
-    $col_count = 0;
-    $row_count = 0;
+  // For old view default to table if view settings haven't been updated.
+  $variables['deprecated_table'] = (!isset($options['deprecated_table']) || $options['deprecated_table']) ? TRUE : FALSE;
+
+  // Existing grid is unresponsive. Default to unresponsive if the view settings
+  // haven't been updated.
+  $variables['unresponsive'] = (!isset($options['unresponsive']) || $options['unresponsive']) ? TRUE : FALSE;
+
+  if (!$variables['deprecated_table']) {
+    $rows = $variables['rows'];
+
+    // Set up striping values.
     $count = 0;
-    foreach ($variables['rows'] as $row_index => $item) {
-      $count++;
-      $row[] = $item;
-      $row_indexes[$row_count][$col_count] = $row_index;
-      $col_count++;
-      if ($count % $columns == 0) {
-        $rows[] = $row;
-        $row = array();
-        $col_count = 0;
-        $row_count++;
-      }
-    }
-    if ($row) {
-      // Fill up the last line only if it's configured, but this is default.
-      if (!empty($handler->options['fill_single_line']) && count($rows)) {
-        for ($i = 0; $i < ($columns - $col_count); $i++) {
-          $row[] = '';
+    $max = count($rows);
+
+    // Reorder based on vertical alignment if not using responsive option.
+    if ($options['alignment'] == 'vertical' && $variables['unresponsive']) {
+      $rows = array();
+      $rows_reorder = array();
+      $num_rows = floor(count($variables['rows']) / $columns);
+      // The remainders are the 'odd' columns that are slightly longer.
+      $remainders = count($variables['rows']) % $columns;
+      $row = 0;
+      $col = 0;
+
+      foreach ($variables['rows'] as $count => $item) {
+        $rows_reorder[$row][$col] = $item;
+
+        $row_indexes[$row][$col] = $count;
+
+        $row++;
+
+        if (!$remainders && $row == $num_rows) {
+          $row = 0;
+          $col++;
+        }
+        elseif ($remainders && $row == $num_rows + 1) {
+          $row = 0;
+          $col++;
+          $remainders--;
         }
       }
-      $rows[] = $row;
-    }
-  }
-  else {
-    $num_rows = floor(count($variables['rows']) / $columns);
-    // The remainders are the 'odd' columns that are slightly longer.
-    $remainders = count($variables['rows']) % $columns;
-    $row = 0;
-    $col = 0;
-    foreach ($variables['rows'] as $count => $item) {
-      $rows[$row][$col] = $item;
-      $row_indexes[$row][$col] = $count;
-      $row++;
 
-      if (!$remainders && $row == $num_rows) {
-        $row = 0;
-        $col++;
+      // Flatten now that items are reordered.
+      $col = 0;
+      foreach ($rows_reorder as $row) {
+        foreach ($row as $column) {
+          $rows[$col] = $column;
+          $col++;
+        }
       }
-      elseif ($remainders && $row == $num_rows + 1) {
-        $row = 0;
-        $col++;
-        $remainders--;
-      }
-    }
-    for ($i = 0; $i < count($rows[0]); $i++) {
-      // This should be string so that's okay :)
-      if (!isset($rows[count($rows) - 1][$i])) {
-        $rows[count($rows) - 1][$i] = '';
-      }
-    }
-  }
 
-  // Apply the row classes
-  foreach ($rows as $row_number => $row) {
-    $row_classes = array();
-    if ($default_row_class) {
-      $row_classes[] =  'row-' . ($row_number + 1);
     }
-    if ($row_class_special) {
-      if ($row_number == 0) {
-        $row_classes[] =  'row-first';
-      }
-      if (count($rows) == ($row_number + 1)) {
-        $row_classes[] =  'row-last';
-      }
-    }
-    $variables['row_classes'][$row_number] = $row_classes;
-    foreach ($rows[$row_number] as $column_number => $item) {
-      $column_classes = array();
+
+    $count = 0;
+    $col_count = 1;
+    foreach ($rows as $id => $row) {
+      $count++;
+      $variables['row_classes'][$id] = array();
       if ($default_row_class) {
-        $column_classes[] = 'col-'. ($column_number + 1);
+        $variables['row_classes'][$id][] = 'views-grid-box';
+        $variables['row_classes'][$id][] = 'views-grid-box-' . $count;
       }
       if ($row_class_special) {
-        if ($column_number == 0) {
-          $column_classes[] = 'col-first';
+        $variables['row_classes'][$id][] = ($count % 2 ? 'odd' : 'even');
+        if ($count == 1) {
+          $variables['row_classes'][$id][] = 'first';
         }
-        elseif (count($rows[$row_number]) == ($column_number + 1)) {
-          $column_classes[] = 'col-last';
+        if ($count == $max) {
+          $variables['row_classes'][$id][] = 'last';
+        }
+        if ($col_count == 1) {
+          $variables['row_classes'][$id][] = 'row-first';
+        }
+        if ($col_count == $options['columns']) {
+          $variables['row_classes'][$id][] = 'row-last';
         }
       }
-      if (isset($row_indexes[$row_number][$column_number]) && $column_class = $view->style_plugin->get_row_class($row_indexes[$row_number][$column_number])) {
-        $column_classes[] = $column_class;
+      if ($row_class = $view->style_plugin->get_row_class($id)) {
+        $variables['row_classes'][$id][] = $row_class;
       }
-      $variables['column_classes'][$row_number][$column_number] = $column_classes;
+      if ($col_count == $options['columns']) {
+        $col_count = 1;
+      } else {
+        $col_count++;
+      }
+    }
+    if (!$variables['unresponsive']) {
+      $variables['classes'] = array(
+        'views-view-grid',
+        'views-view-responsive-grid',
+      );
+      $variables['classes'][] = 'views-view-responsive-grid--' . $options['alignment'];
+      $variables['attributes'] = array('style' => implode(';', array(
+        '--views-responsive-grid--column-count:' . $options['columns'],
+        '--views-responsive-grid--cell-min-width:' . ($options['cell_min_width']['width'] ?? 16) . ($options['cell_min_width']['unit'] ?? 'rem'),
+        '--views-responsive-grid--layout-gap:' . ($options['grid_gutter']['width'] ?? 2) . ($options['grid_gutter']['unit'] ?? 'rem'),
+      )));
+    }
+    // Non-responsive grid uses a simple grid style.
+    else {
+      $variables['classes'] = array(
+        'views-view-grid',
+        'views-view-grid-cols-' . $columns,
+      );
     }
   }
-  $variables['rows'] = $rows;
-  $variables['classes'] = array('views-view-grid', 'cols-' . $columns);
-
-  // Add the summary to the list if set.
-  if (!empty($handler->options['summary'])) {
-    $variables['attributes'] = array('summary' => filter_xss_admin($handler->options['summary']));
-  }
-
-  // Add the caption to the list if set.
-  if (!empty($handler->options['caption'])) {
-    $variables['caption'] = filter_xss_admin($handler->options['caption']);
-  }
+  // Deprecated table style.
   else {
-    $variables['caption'] = '';
+    if ($options['alignment'] == 'horizontal') {
+      $row = array();
+      $col_count = 0;
+      $row_count = 0;
+      $count = 0;
+      foreach ($variables['rows'] as $row_index => $item) {
+        $count++;
+        $row[] = $item;
+        $row_indexes[$row_count][$col_count] = $row_index;
+        $col_count++;
+        if ($count % $columns == 0) {
+          $rows[] = $row;
+          $row = array();
+          $col_count = 0;
+          $row_count++;
+        }
+      }
+      if ($row) {
+        // Fill up the last line only if it's configured, but this is default.
+        if (!empty($handler->options['fill_single_line']) && count($rows)) {
+          for ($i = 0; $i < ($columns - $col_count); $i++) {
+            $row[] = '';
+          }
+        }
+        $rows[] = $row;
+      }
+    }
+    else {
+      $num_rows = floor(count($variables['rows']) / $columns);
+      // The remainders are the 'odd' columns that are slightly longer.
+      $remainders = count($variables['rows']) % $columns;
+      $row = 0;
+      $col = 0;
+      foreach ($variables['rows'] as $count => $item) {
+        $rows[$row][$col] = $item;
+        $row_indexes[$row][$col] = $count;
+        $row++;
+
+        if (!$remainders && $row == $num_rows) {
+          $row = 0;
+          $col++;
+        }
+        elseif ($remainders && $row == $num_rows + 1) {
+          $row = 0;
+          $col++;
+          $remainders--;
+        }
+      }
+      for ($i = 0; $i < count($rows[0]); $i++) {
+        // This should be string so that's okay :)
+        if (!isset($rows[count($rows) - 1][$i])) {
+          $rows[count($rows) - 1][$i] = '';
+        }
+      }
+    }
+
+    // Apply the row classes
+    foreach ($rows as $row_number => $row) {
+      $row_classes = array();
+      if ($default_row_class) {
+        $row_classes[] =  'row-' . ($row_number + 1);
+      }
+      if ($row_class_special) {
+        if ($row_number == 0) {
+          $row_classes[] =  'row-first';
+        }
+        if (count($rows) == ($row_number + 1)) {
+          $row_classes[] =  'row-last';
+        }
+      }
+      $variables['row_classes'][$row_number] = $row_classes;
+      foreach ($rows[$row_number] as $column_number => $item) {
+        $column_classes = array();
+        if ($default_row_class) {
+          $column_classes[] = 'col-'. ($column_number + 1);
+        }
+        if ($row_class_special) {
+          if ($column_number == 0) {
+            $column_classes[] = 'col-first';
+          }
+          elseif (count($rows[$row_number]) == ($column_number + 1)) {
+            $column_classes[] = 'col-last';
+          }
+        }
+        if (isset($row_indexes[$row_number][$column_number]) && $column_class = $view->style_plugin->get_row_class($row_indexes[$row_number][$column_number])) {
+          $column_classes[] = $column_class;
+        }
+        $variables['column_classes'][$row_number][$column_number] = $column_classes;
+      }
+    }
+
+    $variables['classes'] = array('views-view-grid', 'cols-' . $columns);
+
+    // Add the summary to the list if set.
+    if (!empty($handler->options['summary'])) {
+      $variables['attributes'] = array('summary' => filter_xss_admin($handler->options['summary']));
+    }
+
+    // Add the caption to the list if set.
+    if (!empty($handler->options['caption'])) {
+      $variables['caption'] = filter_xss_admin($handler->options['caption']);
+    }
+    else {
+      $variables['caption'] = '';
+    }
   }
+
+  $variables['rows'] = $rows;
 }
 
 /**
@@ -842,14 +977,18 @@ function template_preprocess_views_view_unformatted(&$variables) {
 function template_preprocess_views_view_list(&$variables) {
   $handler  = $variables['view']->style_plugin;
 
-  $class = explode(' ', $handler->options['class']);
-  $class = array_map('backdrop_clean_css_identifier', $class);
+  $classes = explode(' ', $handler->options['class']);
+  foreach ($classes as $key => $class) {
+    $classes[$key] = backdrop_clean_css_identifier($class, array());
+  }
 
-  $wrapper_class = explode(' ', $handler->options['wrapper_class']);
-  $wrapper_class = array_map('backdrop_clean_css_identifier', $wrapper_class);
+  $wrapper_classes = explode(' ', $handler->options['wrapper_class']);
+  foreach ($wrapper_classes as $key => $class) {
+    $wrapper_classes[$key] = backdrop_clean_css_identifier($class, array());
+  }
 
-  $variables['class'] = implode(' ', $class);
-  $variables['wrapper_class'] = implode(' ', $wrapper_class);
+  $variables['class'] = implode(' ', $classes);
+  $variables['wrapper_class'] = implode(' ', $wrapper_classes);
   $variables['wrapper_prefix'] = '';
   $variables['wrapper_suffix'] = '';
   $variables['list_type_prefix'] = '<' . $handler->options['type'] . '>';
@@ -885,8 +1024,8 @@ function template_preprocess_views_view_rss(&$variables) {
 
   if ($view->display_handler->get_option('sitename_title')) {
     $site_config = config('system.core');
-    $title = $site_config->get('site_name');
-    if ($slogan = $site_config->get('site_slogan')) {
+    $title = $site_config->getTranslated('site_name');
+    if ($slogan = $site_config->getTranslated('site_slogan')) {
       $title .= ' - ' . $slogan;
     }
   }
@@ -1051,53 +1190,54 @@ function theme_views_mini_pager($variables) {
   $element = $variables['element'];
   $parameters = $variables['parameters'];
 
-  // current is the page we are currently paged to
+  // Pager is only needed if there are results.
+  if (!isset($pager_page_array[$element]) || empty($pager_total)) {
+    return '';
+  }
+
+  // Current is the page we are currently paged to.
   $pager_current = $pager_page_array[$element] + 1;
-  // max is the maximum page number
+  // Max is the maximum page number.
   $pager_max = $pager_total[$element];
   // End of marker calculations.
 
   if ($pager_total[$element] > 1) {
-
     $li_previous = theme('pager_previous',
       array(
-        'text' => (isset($tags[1]) ? $tags[1] : t('‹‹')),
+        'text' => isset($tags[1]) ? $tags[1] : t('‹‹'),
         'element' => $element,
         'interval' => 1,
         'parameters' => $parameters,
       )
     );
-    if (empty($li_previous)) {
-      $li_previous = "&nbsp;";
-    }
 
     $li_next = theme('pager_next',
       array(
-        'text' => (isset($tags[3]) ? $tags[3] : t('››')),
+        'text' => isset($tags[3]) ? $tags[3] : t('››'),
         'element' => $element,
         'interval' => 1,
         'parameters' => $parameters,
       )
     );
 
-    if (empty($li_next)) {
-      $li_next = "&nbsp;";
+    if ($li_previous) {
+      $items[] = array(
+        'class' => array('pager-previous'),
+        'data' => $li_previous,
+      );
     }
-
-    $items[] = array(
-      'class' => array('pager-previous'),
-      'data' => $li_previous,
-    );
-
     $items[] = array(
       'class' => array('pager-current'),
       'data' => t('@current of @max', array('@current' => $pager_current, '@max' => $pager_max)),
     );
 
-    $items[] = array(
-      'class' => array('pager-next'),
-      'data' => $li_next,
-    );
+    if ($li_next) {
+      $items[] = array(
+        'class' => array('pager-next'),
+        'data' => $li_next,
+      );
+    }
+
     return theme('item_list',
       array(
         'items' => $items,
@@ -1117,6 +1257,105 @@ function theme_views_container($variables) {
   return '<div' . backdrop_attributes($element['#attributes']) . '>' . $element['#children'] . '</div>';
 }
 
+/**
+ * Default theme function for selecting all rows in view for bulk operations.
+ */
+function theme_views_select_all_pages(&$variables) {
+  $view = $variables['view'];
+  $enable_select_all_pages = $variables['enable_select_all_pages'];
+  $build_array = array();
+  // Theming for table plugin.
+  if ($view->style_plugin instanceof views_plugin_style_table && empty($view->style_plugin->options['grouping'])) {
+    if (!$enable_select_all_pages) {
+      return '';
+    }
+    // Provide hidden markup that will be shown as needed on the first row
+    // of the table.
+    $this_page_count = format_plural(count($view->result), '1 row', '@count rows');
+    $this_page = t('Selected <strong>!row_count</strong> on this page.', array('!row_count' => $this_page_count));
+    $all_pages_count = format_plural($view->total_rows, '1 row', '@count rows');
+    $all_pages = t('Selected <strong>!row_count</strong> on all pages.', array('!row_count' => $all_pages_count));
+    $build_array['select_all_pages_wrapper'] = array(
+      '#type' => 'container',
+      '#tree' => FALSE,
+      '#attributes' => array(
+        'class' => array(
+          'views-select-all-pages--wrapper'
+        ),
+      ),
+    );
+    $build_array['select_all_pages_wrapper']['select_all_pages'] = array(
+      '#type' => 'button',
+      '#attributes' => array(
+        'class' => array(
+          'views-select-all-pages--all-pages-button',
+        ),
+      ),
+      '#value' => t('Select all !row_count on all pages', array('!row_count' => $all_pages_count)),
+      '#prefix' => '<span class="views-select-all-pages--this-page">' . $this_page . ' &nbsp;',
+      '#suffix' => '</span>',
+    );
+    $build_array['select_all_pages_wrapper']['select_this_page'] = array(
+      '#type' => 'button',
+      '#attributes' => array(
+        'class' => array(
+          'views-select-all-pages--this-page-button',
+        ),
+      ),
+      '#value' => t('Select only !row_count on this page', array('!row_count' => $this_page_count)),
+      '#prefix' => '<span class="views-select-all-pages--all-pages" style="display: none">' . $all_pages . ' &nbsp;',
+      '#suffix' => '</span>',
+    );
+  }
+  else {
+    $this_page_count = format_plural(count($view->result), '1 item', '@count items');
+    $all_pages_count = format_plural($view->total_rows, '1 item', '@count items');
+    $build_array['select_all_pages'] = array(
+      '#type' => 'fieldset',
+      '#attributes' => array(
+        'class' => array(
+          'views-select-all-pages--fieldset',
+          'views-select-all-pages--wrapper'
+        ),
+      ),
+    );
+    $build_array['select_all_pages']['this_page'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Select !this_page_count on this page', array('!this_page_count' => $this_page_count)),
+      '#default_value' => '',
+      '#attributes' => array(
+        'class' => array(
+          'views-select-all-pages--this-page-checkbox',
+        ),
+      ),
+      // Since this build array is not form-processed, we supply a unique id so
+      // that the label contains a "for" attribute, making it clickable.
+      '#id' => backdrop_html_id('views-select-all-pages--this-page-checkbox'),
+    );
+
+    if ($enable_select_all_pages) {
+      $build_array['select_all_pages']['or'] = array(
+        '#type' => 'markup',
+        '#markup' => '<em>' . t('or') . '</em>',
+      );
+      $build_array['select_all_pages']['all_pages'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Select @count on all pages', array('@count' => $all_pages_count)),
+        '#default_value' => '',
+        '#attributes' => array(
+          'class' => array(
+            'views-select-all-pages--all-pages-checkbox',
+          ),
+        ),
+        // Since this build array is not form-processed, we supply a unique id so
+        // that the label contains a "for" attribute, making it clickable.
+        '#id' => backdrop_html_id('views-select-all-pages--all-pages-checkbox'),
+      );
+    }
+  }
+
+  return backdrop_render($build_array);
+}
 /**
  * @defgroup views_templates Views template files
  * @{

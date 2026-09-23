@@ -1,7 +1,7 @@
 <?php
 /**
  * @file
- * Administrative pages and callbacks for the Configuration management module.
+ * Admin page callbacks for the Configuration Management module.
  */
 
 /**
@@ -18,7 +18,8 @@ function config_sync_form(array $form, array &$form_state) {
   $form['#attached']['css'][] = backdrop_get_path('module', 'config') . '/css/config.admin.css';
 
   $form['description'] = array(
-    '#markup' => '<p>' . t('This form allows you to synchronize configuration between sites, such as in development, staging, and production servers. This page shows you the current differences between your current configuration and changes that have been staged for deployment.') . '</p>',
+    '#type' => 'help',
+    '#markup' => t('This form allows you to synchronize configuration between sites, such as in development, staging, and production servers. This page shows you the current differences between your current configuration and changes that have been staged for deployment.') . '</p></p>' . t('When the configuration files are in version control, it may be preferable to not empty the staging directory after each sync. The <code>config_sync_clear_staging</code> setting can be disabled in <code>settings.php</code>. Read more about <a href="!url" target="_blank">managing configuration</a>.', array('!url' => url('https://docs.backdropcms.org/documentation/working-with-configuration'))),
   );
 
   if ($changed_config_count === 0) {
@@ -44,7 +45,7 @@ function config_sync_form(array $form, array &$form_state) {
         '#attributes' => array(
           'class' => array('use-ajax'),
           'data-dialog' => 'true',
-          'data-dialog-options' => '{"dialogClass": "config-diff"}',
+          'data-dialog-options' => '{"classes": {"ui-dialog": "config-diff"}}',
         ),
       );
       $row = array(
@@ -144,22 +145,28 @@ function config_diff_page($config_file) {
   $build['diff'] = array(
     '#theme' => 'table',
     '#header' => array(
-      array('data' => t('Old'), 'colspan' => '2'),
-      array('data' => t('New'), 'colspan' => '2'),
+      array('data' => t('Old'), 'colspan' => '2', 'class' => array('config-old')),
+      array('data' => t('New'), 'colspan' => '2', 'class' => array('config-new')),
     ),
+    '#attributes' => array('class' => array('diff-table')),
     '#rows' => $diff,
     '#sticky' => FALSE,
   );
 
-  $build['back'] = array(
+  $build['actions'] = array(
+    '#type' => 'actions',
+    '#attributes' => array('class' => array('form-actions')),
+  );
+  $build['actions']['back'] = array(
     '#type' => 'link',
     '#title' => t('Back to "Synchronize configuration" page.'),
     '#href' => 'admin/config/development/configuration',
+    '#attributes' => array('class' => array('button', 'button-secondary', 'form-submit')),
   );
 
   if (backdrop_is_dialog()) {
-    $build['back']['#attributes']['class'][] = 'dialog-cancel';
-    $build['back']['#title'] = t('Close');
+    $build['actions']['back']['#attributes']['class'][] = 'dialog-cancel';
+    $build['actions']['back']['#title'] = t('Close');
   }
 
   return $build;
@@ -170,7 +177,8 @@ function config_diff_page($config_file) {
  */
 function config_export_full_form(array $form, array $form_state) {
   $form['description'] = array(
-    '#markup' => '<p>' . t('This form may be used to generate a full export of your entire site\'s configuration. This configuration file should remain compressed when you upload it to the destination site.') . '</p>',
+    '#type' => 'help',
+    '#markup' => t('This form may be used to generate a full export of your entire site\'s configuration. This configuration file should remain compressed when you upload it to the destination site.'),
   );
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -192,22 +200,17 @@ function config_export_full_form_submit(array $form, array &$form_state) {
  */
 function config_download_full_export() {
   $file_path = file_create_filename('config.tar.gz', file_directory_temp());
-  $archiver = new ArchiverTar($file_path);
-  $config_dir = config_get_config_directory();
-  $config_storage = new ConfigFileStorage($config_dir);
-  $config_files = array();
-  foreach ($config_storage->listAll() as $config_name) {
-    $config_files[] = $config_dir . '/' . $config_name . '.json';
-  }
-  $archiver->getArchive()->createModify($config_files, '', config_get_config_directory());
-
+  $config_storage = config_get_config_storage();
+  $config_storage->exportArchive($file_path);
   $filename = str_replace(file_directory_temp() . '/', '', $file_path);
   $headers = array(
     'Content-Disposition' => 'attachment; filename=config.tar.gz',
     'Content-type' => 'application/x-gzip',
   );
+  // file_transfer() exits after sending the file, so the temporary archive
+  // must be removed in a shutdown function to ensure it does not persist.
+  backdrop_register_shutdown_function('file_unmanaged_delete', $file_path);
   file_transfer('temporary://' . $filename, $headers);
-  file_unmanaged_delete($file_path);
 }
 
 /**
@@ -215,7 +218,8 @@ function config_download_full_export() {
  */
 function config_import_full_form(array $form, array &$form_state) {
   $form['description'] = array(
-    '#markup' => '<p>' . t('This form imports a site configuration archive from another site. Upload an export file below to stage the changes (you\'ll have a chance to review and confirm the changes first). To generate an export file, visit the <a href="!export">full export</a> page.', array('!export' => url('admin/config/development/configuration/full/export'))) . '</p>',
+    '#type' => 'help',
+    '#markup' => t('This form imports a site configuration archive from another site. Upload an export file below to stage the changes (you\'ll have a chance to review and confirm the changes first). To generate an export file, visit the <a href="!export">full export</a> page.', array('!export' => url('admin/config/development/configuration/full/export'))),
   );
   $form['import_tarball'] = array(
     '#type' => 'managed_file',
@@ -228,7 +232,8 @@ function config_import_full_form(array $form, array &$form_state) {
     '#upload_location' => 'temporary://',
   );
 
-  $form['submit'] = array(
+  $form['actions']['#type'] = 'actions';
+  $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Stage import'),
   );
@@ -241,19 +246,15 @@ function config_import_full_form(array $form, array &$form_state) {
 function config_import_full_form_submit(array &$form, array &$form_state) {
   if ($fid = $form_state['values']['import_tarball']) {
     // Empty out the existing staging directory.
-    $config_dir = config_get_config_directory('staging');
-    $config_storage = new ConfigFileStorage($config_dir);
+    $config_storage = config_get_config_storage('staging');
     $config_storage->deleteAll();
 
     // Convert the file URI to a file path that is readable by ArchiverTar.
     $file = file_load($fid);
-    $realpath = backdrop_realpath($file->uri);
-
     try {
-      $archiver = new ArchiverTar($realpath);
-      $archiver->extract($config_dir, $archiver->listContents());
+      $config_storage->importArchive($file->uri);
     }
-    catch (\Exception $e) {
+    catch (\ConfigStorageException $e) {
       form_set_error('import_tarball', t('Could not extract the contents of the tar file. The error message is "@message".', array('@message' => $e->getMessage())));
     }
     file_delete($file->fid);
@@ -279,8 +280,14 @@ function config_export_single_form(array $form, array &$form_state, $config_grou
   $form['#attached']['css'][] = backdrop_get_path('module', 'config') . '/css/config.admin.css';
 
   $form['description'] = array(
-    '#markup' => '<p>' . t('This form may be used to export a single configuration so that it may be imported on a different site. Select a configuration group and name to generate configuration for copy/paste.') . '</p>',
+    '#type' => 'help',
+    '#markup' => t('This form may be used to export a single configuration so that it may be imported on a different site. Select a configuration group and name to generate configuration for copy/paste.'),
   );
+
+  // Pull config group from URL if not provided.
+  if (empty($config_group) && isset($_GET['group'])) {
+    $config_group = $_GET['group'];
+  }
 
   $group_options = backdrop_map_assoc(array_keys($form_state['config_groups']));
   natsort($group_options);
@@ -296,11 +303,25 @@ function config_export_single_form(array $form, array &$form_state, $config_grou
     ),
   );
 
+  // Pull config name from URL if not provided.
+  if (empty($config_name) && isset($_GET['name'])) {
+    $config_name = $_GET['name'];
+  }
+
   $default_type = isset($form_state['values']['config_group']) ? $form_state['values']['config_group'] : $config_group;
   $config_names = array();
   if ($default_type) {
-    $config_names = $form_state['config_groups'][$default_type];
-    natsort($config_names);
+    // Prevent fatal errors if the key is not available in the select list.
+    if (isset($form_state['config_groups'][$default_type])) {
+      $config_names = $form_state['config_groups'][$default_type];
+      natsort($config_names);
+    }
+    else {
+      $config_names = array();
+      backdrop_set_message(t('Configuration group %type not available.', array(
+        '%type' => $default_type,
+      )), 'warning');
+    }
   }
   $form['config_name'] = array(
     '#title' => t('Configuration name'),
@@ -346,7 +367,7 @@ function config_export_single_form_update_type($form, &$form_state) {
   $form['export']['#value'] = '';
   $form['export']['#rows'] = 12;
 
-  // Because we need to replace both the configation name select and the
+  // Because we need to replace both the configuration name select and the
   // textarea, this requires using AJAX commands instead of a simple return.
   $commands = array();
   $commands[] = ajax_command_replace('#edit-config-type-wrapper', backdrop_render($form['config_name']));
@@ -366,8 +387,7 @@ function config_export_single_form_update_type($form, &$form_state) {
 function config_export_single_form_update_export($form, &$form_state) {
   if ($form_state['values']['config_name']) {
     $config_name = $form_state['values']['config_name'];
-    $directory = config_get_config_directory('active');
-    $storage = new ConfigFileStorage($directory);
+    $storage = config_get_config_storage('active');
     $config = new Config($config_name, $storage);
 
     // Re-add the config name property so it shows up in the export.
@@ -389,9 +409,11 @@ function config_export_single_form_update_export($form, &$form_state) {
  */
 function config_import_single_form(array $form, array &$form_state) {
   form_load_include($form_state, 'inc', 'config', 'config.sync');
+  $form['#attached']['css'][] = backdrop_get_path('module', 'config') . '/css/config.admin.css';
 
   $form['description'] = array(
-    '#markup' => '<p>' . t('This form imports a single configuration file from another site. To generate an export, visit the <a href="!export">single export</a> page.', array('!export' => url('admin/config/development/configuration/single/export'))) . '</p>',
+    '#type' => 'help',
+    '#markup' => t('This form imports a single configuration file from another site. To generate an export, visit the <a href="!export">single export</a> page.', array('!export' => url('admin/config/development/configuration/single/export'))),
   );
   $form['import'] = array(
     '#title' => t('Paste your configuration here'),
@@ -412,8 +434,7 @@ function config_import_single_form(array $form, array &$form_state) {
  */
 function config_import_single_form_validate(array &$form, array &$form_state) {
   // Decode the submitted import.
-  $active_directory = config_get_config_directory('active');
-  $active_storage = new ConfigFileStorage($active_directory);
+  $active_storage = config_get_config_storage('active');
   try {
     $data = $active_storage->decode($form_state['values']['import']);
   }
@@ -475,10 +496,8 @@ function config_import_single_form_submit(array &$form, array &$form_state) {
  * Utility function to get the current diffs between active and staging.
  */
 function config_get_statuses() {
-  $active_directory = config_get_config_directory('active');
-  $staging_directory = config_get_config_directory('staging');
-  $active_storage = new ConfigFileStorage($active_directory);
-  $staging_storage = new ConfigFileStorage($staging_directory);
+  $active_storage = config_get_config_storage('active');
+  $staging_storage = config_get_config_storage('staging');
 
   // Create full list of all files from both active and staging.
   $active_files = $active_storage->listAll();
@@ -503,7 +522,7 @@ function config_get_statuses() {
         try {
           $active_config = $active_storage->read($filename);
           $staging_config = $staging_storage->read($filename);
-          if ($active_config != $staging_config) {
+          if ($active_config !== $staging_config) {
             $config_statuses[$filename] = 'update';
           }
         }
@@ -522,8 +541,7 @@ function config_get_statuses() {
  * Utility function to get the current diffs between active and staging.
  */
 function config_get_modified_times() {
-  $staging_directory = config_get_config_directory('staging');
-  $staging_storage = new ConfigFileStorage($staging_directory);
+  $staging_storage = config_get_config_storage('staging');
   $staging_files = $staging_storage->listAll();
   $modified_times = array();
   foreach ($staging_files as $file) {
@@ -540,12 +558,12 @@ function config_get_modified_times() {
  *
  * @return array
  *   An array of formatted strings showing the diffs between the two storages.
+ *
+ * @see config_diff_page()
  */
 function config_diff($name) {
-  $active_directory = config_get_config_directory('active');
-  $staging_directory = config_get_config_directory('staging');
-  $active_storage = new ConfigFileStorage($active_directory);
-  $staging_storage = new ConfigFileStorage($staging_directory);
+  $active_storage = config_get_config_storage('active');
+  $staging_storage = config_get_config_storage('staging');
 
   $source_data = explode("\n", backdrop_json_encode($active_storage->read($name), TRUE));
   $target_data = explode("\n", backdrop_json_encode($staging_storage->read($name), TRUE));

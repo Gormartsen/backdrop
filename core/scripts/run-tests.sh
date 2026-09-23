@@ -47,6 +47,11 @@
  *              Specify the path and the extension
  *              (i.e. 'core/modules/user/user.test').
  *
+ *
+ *  --directory <path>
+ *
+ *              Run all tests found within the specified file directory.
+ *
  *  --xml       <path>
  *
  *              If provided, test results will be written as xml files to this path.
@@ -54,6 +59,10 @@
  *  --color     Output text format results with color highlighting.
  *
  *  --verbose   Output detailed assertion messages in addition to summary.
+ *
+ *  --summary [file]
+ *
+ *              Output errors and exception messages to summary file.
  *
  *  <test1>[ <test2>[ <test3> ...]]
  *
@@ -66,8 +75,8 @@
  *    --url http://example.com/ BlockTestCase
  *
  *  @code
- *    sudo -u [wwwrun|www-data|etc] ./core/scripts/run-tests.sh --url http://example.com/ --all
- *    sudo -u [wwwrun|www-data|etc] ./core/scripts/run-tests.sh --url http://example.com/ BlockTestCase
+ *    sudo -u [www|www-data|etc] ./core/scripts/run-tests.sh --url http://example.com/ --all
+ *    sudo -u [www|www-data|etc] ./core/scripts/run-tests.sh --url http://example.com/ BlockTestCase
  *  @endcode
  */
 
@@ -122,7 +131,8 @@ if ($args['clean']) {
   echo "\nEnvironment cleaned.\n";
 
   // Get the status messages and print them.
-  $messages = array_pop(backdrop_get_messages('status'));
+  $message_array = backdrop_get_messages('status');
+  $messages = array_pop($message_array);
   foreach ($messages as $text) {
     echo " - " . $text . "\n";
   }
@@ -132,7 +142,8 @@ if ($args['clean']) {
   echo "\nProfile cache tables cleaned.\n";
 
   // Get the status messages and print them.
-  $messages = array_pop(backdrop_get_messages('status'));
+  $message_array = backdrop_get_messages('status');
+  $messages = array_pop($message_array);
   foreach ($messages as $text) {
     echo " - " . $text . "\n";
   }
@@ -142,7 +153,8 @@ if ($args['clean']) {
   echo "\nProfile cache folders cleaned.\n";
 
   // Get the status messages and print them.
-  $messages = array_pop(backdrop_get_messages('status'));
+  $message_array = backdrop_get_messages('status');
+  $messages = array_pop($message_array);
   foreach ($messages as $text) {
     echo " - " . $text . "\n";
   }
@@ -182,8 +194,12 @@ if ($args['cache']) {
   simpletest_script_init(NULL);
 
   echo "\nPreparing database and configuration cache for profiles\n";
+  $skip_myisam = !$args['myisam-convert'];
+  if (!$skip_myisam) {
+    echo "Cache table conversion to MyISAM is enabled\n";
+  }
   foreach($profiles as $profile){
-    simpletest_script_prepare_profile_cache($profile);
+    simpletest_script_prepare_profile_cache($profile, $skip_myisam);
     echo " - " . $profile . " - " . "ready\n";
 
   }
@@ -218,6 +234,10 @@ simpletest_script_reporter_display_results();
 
 if ($args['xml']) {
   simpletest_script_reporter_write_xml_results();
+}
+
+if ($args['summary']) {
+  simpletest_script_write_summary($args['summary']);
 }
 
 // Cleanup our test results.
@@ -269,6 +289,10 @@ All arguments are long options.
               Specify the path and the extension
               (i.e. 'core/modules/user/user.test').
 
+  --directory <path>
+
+              Run all tests found within the specified file directory.
+
   --xml       <path>
 
               If provided, test results will be written as xml files to this path.
@@ -277,7 +301,16 @@ All arguments are long options.
 
   --verbose   Output detailed assertion messages in addition to summary.
 
-  --cache     Generate cache for instalation profiles to boost tests speed.
+  --cache     Generate cache for installation profiles to boost tests speed.
+
+  --myisam-convert
+              Convert cache tables to MyISAM. Improves test performance but is
+              not recommended with MySQL 5.7+ or MariaDB 10.2.2+.
+
+  --summary [file]
+
+              Output errors and exception messages to summary file.
+
 
   <test1>[ <test2>[ <test3> ...]]
 
@@ -287,9 +320,9 @@ All arguments are long options.
 To run this script you will normally invoke it from the root directory of your
 Backdrop installation as the webserver user (differs per configuration), or root:
 
-sudo -u [wwwrun|www-data|etc ./core/scripts/{$args['script']}
+sudo -u [www|www-data|etc] ./core/scripts/{$args['script']}
   --url http://example.com/ --all
-sudo -u [wwwrun|www-data|etc] ./core/scripts/{$args['script']}
+sudo -u [www|www-data|etc] ./core/scripts/{$args['script']}
   --url http://example.com/ BlockTestCase
 \n
 EOF;
@@ -298,7 +331,8 @@ EOF;
 /**
  * Parse execution argument and ensure that all are valid.
  *
- * @return The list of arguments.
+ * @return array
+ *   The list of arguments.
  */
 function simpletest_script_parse_args() {
   // Set default values.
@@ -311,6 +345,7 @@ function simpletest_script_parse_args() {
     'php' => '',
     'concurrency' => 1,
     'cache' => FALSE,
+    'myisam-convert' => FALSE,
     'split' => '',
     'force' => FALSE,
     'all' => FALSE,
@@ -324,6 +359,8 @@ function simpletest_script_parse_args() {
     'test-id' => 0,
     'execute-test' => '',
     'xml' => '',
+    'summary' => '',
+    'directory' => NULL,
   );
 
   // Override with set values.
@@ -455,7 +492,7 @@ function simpletest_script_init($server_software) {
    * avoids resolving of symlinks. This allows the code repository to be a symlink
    * and hosted outside of the web root. See issue #1297.
    *
-   * The realpath is important here to avoid FAILURE with filetransfer.tests. 
+   * The realpath is important here to avoid FAILURE with filetransfer.tests.
    * When realpath used, BACKDROP_ROOT contain full path to backdrop root folder.
    */
   define('BACKDROP_ROOT', realpath(dirname(dirname(dirname($_SERVER['SCRIPT_FILENAME'])))));
@@ -570,7 +607,8 @@ function simpletest_script_command($test_id, $test_class) {
  *
  * Will print error and exit if no valid tests were found.
  *
- * @return List of tests.
+ * @return array
+ *   List of tests.
  */
 function simpletest_script_get_test_list() {
   global $args, $all_tests, $groups;
@@ -592,6 +630,30 @@ function simpletest_script_get_test_list() {
         $file = $refclass->getFileName();
         if (isset($files[$file])) {
           $test_list[] = $class_name;
+        }
+      }
+    }
+    elseif ($args['directory']) {
+      // Extract test case class names from specified directory.
+      if ($args['directory'][0] === '/') {
+        $directory = $args['directory'];
+      }
+      else {
+        $directory = BACKDROP_ROOT . "/" . $args['directory'];
+      }
+
+      $all_classes = array();
+      foreach ($groups as $group) {
+        $all_classes = array_merge($all_classes, array_keys($group));
+      }
+
+      foreach (file_scan_directory($directory, '/\.test$/') as $file) {
+        $content = file_get_contents($file->uri);
+        preg_match_all('@^class ([^ ]+)@m', $content, $matches);
+        foreach ($matches[1] as $test_class) {
+          if(in_array($test_class, $all_classes)) {
+            $test_list[] = $test_class;
+          }
         }
       }
     }
@@ -658,7 +720,7 @@ function simpletest_script_get_test_list() {
  * Initialize the reporter.
  */
 function simpletest_script_reporter_init() {
-  global $args, $all_tests, $test_list, $results_map;
+  global $args, $test_list, $results_map;
 
   $results_map = array(
     'pass' => 'Pass',
@@ -700,6 +762,52 @@ function simpletest_script_reporter_init() {
 }
 
 /**
+ * Write a summary of any test failures to a separate file.
+ *
+ * @param string $summary_file
+ *   The path to a file to which the summary will be written.
+ */
+function simpletest_script_write_summary($summary_file) {
+  global $test_id, $results_map;
+
+  $summary = '';
+  $results = db_query("SELECT * FROM {simpletest} WHERE test_id = :test_id AND (status = 'exception' OR status = 'fail') ORDER BY test_class, message_id", array(':test_id' => $test_id));
+  $test_class = '';
+  $count = 0;
+  foreach ($results as $result) {
+    if (isset($results_map[$result->status])) {
+      if ($result->test_class != $test_class) {
+        // Display test class every time results are for new test class.
+        $test_class = $result->test_class;
+        $info = simpletest_test_get_by_class($test_class);
+        $test_group = $info['group'];
+        $test_name = $info['name'];
+        $summary .= "\n$test_group: $test_name ($test_class)\n";
+        $test_class = $result->test_class;
+      }
+
+      if ($count < 10) {
+        $summary .= " - `" . $result->status . "` " . trim(strip_tags($result->message)) . ' **' . basename($result->file) . '**:' . $result->line . "\n";
+      }
+      $count++;
+    }
+  }
+
+  if ($count > 10) {
+    $summary .= "\nResult limited to first 10 items. More details are available from the full log.\n";
+  }
+
+  $total_count = db_query("SELECT COUNT(*) FROM {simpletest} WHERE test_id = :test_id AND status IN ('fail', 'pass')", array(':test_id' => $test_id))->fetchField();
+  if(!empty($summary)){
+    $summary = format_plural($count, '1 of !total_count tests failed', '@count of !total_count tests failed.', array('!total_count' => $total_count)) . "\n" . $summary;
+  }
+  else{
+    $summary = format_plural($total_count, '1 test passed', '@count tests passed.');
+  }
+  file_put_contents($summary_file, $summary);
+}
+
+/**
  * Display jUnit XML test results.
  */
 function simpletest_script_reporter_write_xml_results() {
@@ -732,6 +840,7 @@ function simpletest_script_reporter_write_xml_results() {
 
       // Create the XML element for this test case:
       $case = $dom_document->createElement('testcase');
+      // cspell:disable-next-line
       $case->setAttribute('classname', $test_class);
       list($class, $name) = explode('->', $result->function, 2);
       $case->setAttribute('name', $name);
@@ -813,8 +922,8 @@ function simpletest_script_reporter_display_results() {
           $test_class = $result->test_class;
 
           // Print table header.
-          echo "Status    Group      Filename          Line Function                            \n";
-          echo "--------------------------------------------------------------------------------\n";
+          echo "Status    Group      Filename          Line    Function                            \n";
+          echo "------------------------------------------------------------------------------------------------------------------------\n";
         }
 
         simpletest_script_format_result($result);
@@ -824,20 +933,29 @@ function simpletest_script_reporter_display_results() {
 }
 
 /**
- * Format the result so that it fits within the default 80 character
- * terminal size.
+ * Format the result so that it fits within a 120 character terminal size.
  *
- * @param $result The result object to format.
+ * @param $result
+ *   The result object to format.
  */
 function simpletest_script_format_result($result) {
-  global $results_map, $color;
+  global $results_map;
 
-  $summary = sprintf("%-9.9s %-10.10s %-17.17s %4.4s %-35.35s\n",
-    $results_map[$result->status], $result->message_group, basename($result->file), $result->line, $result->function);
+  // Only print the function name, the class is redundant with the heading.
+  list($class, $function) = explode('->', $result->function, 2);
+
+  $summary = sprintf(
+    "%-9s %-10s %-17s %-7s %-72s\n",
+    $results_map[$result->status],
+    $result->message_group,
+    basename($result->file),
+    $result->line,
+    $function
+  );
 
   simpletest_script_print($summary, $result->status);
 
-  $lines = explode("\n", wordwrap(trim(strip_tags($result->message)), 76));
+  $lines = explode("\n", wordwrap(trim(strip_tags(decode_entities($result->message))), 116));
   foreach ($lines as $line) {
     echo "    $line\n";
   }
@@ -847,7 +965,8 @@ function simpletest_script_format_result($result) {
  * Print error message prefixed with "ERROR: " and displayed in fail color
  * if color output is enabled.
  *
- * @param $message The message to print.
+ * @param $message
+ *   The message to print.
  */
 function simpletest_script_print_error($message) {
   simpletest_script_print("ERROR: $message\n", 'fail');
@@ -857,8 +976,10 @@ function simpletest_script_print_error($message) {
  * Print a message to the console, if color is enabled then the specified
  * color code will be used.
  *
- * @param $message The message to print.
- * @param $status One of the following:
+ * @param $message
+ *   The message to print.
+ * @param $status
+ *   One of the following:
  *   - pass
  *   - debug
  *   - exception
@@ -866,7 +987,7 @@ function simpletest_script_print_error($message) {
  */
 function simpletest_script_print($message, $status) {
   global $args;
-  if ($args['color']) {
+  if (isset($args['color']) && $args['color']) {
     $color_code = simpletest_script_color_code($status);
     $message = "\033[" . $color_code . "m" . $message . "\033[0m";
   }
@@ -882,8 +1003,10 @@ function simpletest_script_print($message, $status) {
 /**
  * Get the color code associated with the specified status.
  *
- * @param $status The status string to get code for.
- * @return Color code.
+ * @param $status
+ *   The status string to get code for.
+ * @return int
+ *   Color code.
  */
 function simpletest_script_color_code($status) {
   switch ($status) {
@@ -936,10 +1059,9 @@ function simpletest_script_print_alternatives($string, $array, $degree = 4) {
  */
 function simpletest_script_clean_profile_cache_tables(){
   $tables = db_find_tables(Database::getConnection()->prefixTables('{simpletest_cache_}') . '%');
-  $count = 0;
+  $count = count($tables);
   foreach ($tables as $table) {
     db_drop_table($table);
-    $count++;
   }
 
   if ($count > 0) {
@@ -972,7 +1094,7 @@ function simpletest_script_clean_profile_cache_folders(){
 /**
  * Removed profile cached tables from the database.
  */
-function simpletest_script_prepare_profile_cache($profile){
+function simpletest_script_prepare_profile_cache($profile, $skip_mysiam = FALSE){
   try {
     backdrop_page_is_cacheable(FALSE);
     backdrop_bootstrap(BACKDROP_BOOTSTRAP_FULL);
@@ -983,7 +1105,7 @@ function simpletest_script_prepare_profile_cache($profile){
     $test = new BackdropWebTestCaseCache();
     $test->setProfile($profile);
     if (!$test->isCached()) {
-      $test->prepareCache();
+      $test->prepareCache($skip_mysiam);
     }
   }
   catch (Exception $e) {
@@ -991,4 +1113,3 @@ function simpletest_script_prepare_profile_cache($profile){
     exit(1);
   }
 }
-

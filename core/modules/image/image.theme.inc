@@ -58,13 +58,26 @@ function theme_image_style_list($variables) {
   $rows = array();
   foreach ($styles as $style) {
     $row = array();
-    $row[] = l($style['label'], 'admin/config/media/image-styles/edit/' . $style['name']);
+    $row[] = theme('label_machine_name__image_style', array(
+      'label' => $style['label'],
+      'machine_name' => $style['name'],
+    ));
 
     $links = array();
-    $links['edit'] = array(
-      'title' => t('Edit'),
-      'href' => 'admin/config/media/image-styles/edit/' . $style['name'],
+    $links['configure'] = array(
+      'title' => t('Configure'),
+      'href' => 'admin/config/media/image-styles/configure/' . $style['name'],
     );
+    if (module_exists('config') && user_access('synchronize configuration')) {
+      $links['export'] = array(
+        'title' => t('Export'),
+        'href' => 'admin/config/development/configuration/single/export',
+        'query' => array(
+          'group' => 'Image styles',
+          'name' => 'image.style.' . $style['name'],
+        ),
+      );
+    }
 
     if ($style['storage'] == IMAGE_STORAGE_NORMAL) {
       $row[] = t('Custom');
@@ -92,14 +105,11 @@ function theme_image_style_list($variables) {
     $rows[] = $row;
   }
 
-  if (empty($rows)) {
-    $rows[] = array(array(
-      'colspan' => 4,
-      'data' => t('There are currently no styles. <a href="!url">Add a new one</a>.', array('!url' => url('admin/config/media/image-styles/add'))),
-    ));
-  }
-
-  return theme('table', array('header' => $header, 'rows' => $rows));
+  return theme('table', array(
+    'header' => $header,
+    'rows' => $rows,
+    'empty' => t('There are currently no styles. <a href="!url">Add a new one</a>.', array('!url' => url('admin/config/media/image-styles/add'))),
+  ));
 }
 
 /**
@@ -213,7 +223,7 @@ function theme_image_style_preview($variables) {
   $output .= '<div class="preview-image-wrapper">';
   $output .= t('original') . ' (' . l(t('view actual size'), $original_url) . ')';
   $output .= '<div class="preview-image original-image" style="' . $original_attributes['style'] . '">';
-  $output .= '<a href="' . $original_url . '">' . theme('image', array('uri' => $original_path, 'alt' => t('Sample original image'), 'title' => '', 'attributes' => $original_attributes)) . '</a>';
+  $output .= '<a href="' . $original_url . '">' . theme('image', array('path' => $original_path, 'alt' => t('Sample original image'), 'title' => '', 'attributes' => $original_attributes)) . '</a>';
   $output .= '<div class="height" style="height: ' . $original_height . 'px"><span>' . $original_image['height'] . 'px</span></div>';
   $output .= '<div class="width" style="width: ' . $original_width . 'px"><span>' . $original_image['width'] . 'px</span></div>';
   $output .= '</div>'; // End preview-image.
@@ -344,8 +354,9 @@ function theme_image_widget($variables) {
   }
 
   $output .= '<div class="image-widget-data">';
-  if ($element['fid']['#value'] != 0) {
-    $element['filename']['#markup'] .= ' <span class="file-size">(' . format_size($element['#file']->filesize) . ')</span> ';
+  if (!empty($element['fids']['#value'])) {
+    $file = reset($element['#files']);
+    $element['file_' . $file->fid]['filename']['#markup'] .= ' <span class="file-size">(' . format_size($file->filesize) . ')</span> ';
   }
   $output .= backdrop_render_children($element);
   $output .= '</div>';

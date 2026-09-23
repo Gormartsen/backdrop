@@ -23,6 +23,50 @@ Backdrop.behaviors.dropButton = {
 };
 
 /**
+ * Set the min-width of dropbuttons (and their parent) to handle all of the
+ * link widths.
+ */
+Backdrop.behaviors.dropButtonWidths = {
+  attach: function(context, settings) {
+    function adjustDropButtonWidths() {
+      var $dropbutton = $(this);
+
+      // Get widest item width.
+      var widestItem = 0, $item;
+      $dropbutton.find('li:hidden').each(function() {
+        // Use a clone element to avoid altering element CSS properties.
+        $item = $(this).clone().insertAfter($(this)).show().css('visibility', 'hidden');
+        widestItem = Math.max($item.outerWidth(), widestItem);
+        $item.remove();
+      });
+
+      // Set dropbutton list (<ul>) as wide as its widest child.
+      $dropbutton.find('.dropbutton').css('min-width', widestItem + 'px');
+
+      // Set parent element min-width, like <td class="operations"> to prevent
+      // overflow issue (See #2806).
+      $dropbutton.parent().css('min-width', $dropbutton.find('.dropbutton-widget').outerWidth() + 'px');
+    }
+
+    // Get the font size and family for an element in a dropbutton if one
+    // exists. If none exist, then we don't need to do any processing.
+    var $link = $('.dropbutton li a').first();
+    if ($link.length == 0) {
+      return;
+    }
+    var fontSize = $link.css('font-size');
+    var fontList = $link.css('font-family').split(', ');
+    var actualFont = fontList.find(font => document.fonts.check(fontSize + ` ${font}`));
+
+    // Calculate dropbutton elements width once the font is loaded.
+    Backdrop.isFontLoaded(actualFont, function() {
+      $(context).find('.dropbutton-wrapper').once('dropbutton-width', adjustDropButtonWidths);
+    });
+
+  }
+};
+
+/**
  * Delegated callback for opening and closing dropbutton secondary actions.
  */
 function dropbuttonClickHandler (e) {
@@ -36,8 +80,8 @@ function dropbuttonClickHandler (e) {
  * All secondary actions beyond the first in the list are presented in a
  * dropdown list accessible through a toggle arrow associated with the button.
  *
- * @param {jQuery} $dropbutton
- *   A jQuery element.
+ * @param DOMElement dropbutton
+ *   A DOM element.
  *
  * @param {Object} settings
  *   A list of options including:
@@ -80,6 +124,9 @@ function DropButton (dropbutton, settings) {
         'focusout.dropbutton': $.proxy(this.focusOut, this),
         'focusin.dropbutton': $.proxy(this.focusIn, this)
       });
+  }
+  else {
+    this.$dropbutton.addClass('dropbutton-single');
   }
 }
 
@@ -153,7 +200,7 @@ $.extend(DropButton.prototype, {
  */
 Backdrop.theme.prototype.dropbuttonToggle = function (options) {
   return '<li class="dropbutton-toggle"><button type="button" role="button"><span class="dropbutton-arrow"><span class="visually-hidden">' + options.title + '</span></span></button></li>';
-}
+};
 
 // Expose constructor in the public space.
 Backdrop.DropButton = DropButton;

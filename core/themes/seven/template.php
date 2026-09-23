@@ -5,6 +5,14 @@
  */
 
 /**
+ * Implements hook_preprocess_page().
+ */
+function seven_preprocess_page(&$variables) {
+  // Add the OpenSans font from core on every page of the site.
+  backdrop_add_library('system', 'opensans', TRUE);
+}
+
+/**
  * Prepares variables for layout templates.
  */
 function seven_preprocess_layout(&$variables) {
@@ -58,6 +66,7 @@ function seven_node_add_list($variables) {
  */
 function seven_admin_block_content($variables) {
   $content = $variables['content'];
+  backdrop_sort($content, array('link_title' => SORT_STRING));
   $output = '';
   if (!empty($content)) {
     $output = '<ul class="admin-list">';
@@ -81,12 +90,21 @@ function seven_admin_block_content($variables) {
  */
 function seven_tablesort_indicator($variables) {
   $style = $variables['style'];
-  $theme_path = backdrop_get_path('theme', 'seven');
   if ($style == 'asc') {
-    return theme('image', array('uri' => $theme_path . '/images/arrow-asc.png', 'alt' => t('sort ascending'), 'width' => 13, 'height' => 13, 'title' => t('sort ascending')));
+    return icon('seven-sort-down', array(
+      'alt' => t('sort ascending'),
+      'attributes' => array(
+        'class' => array('tablesort tablesort-asc'),
+      ),
+    ));
   }
   else {
-    return theme('image', array('uri' => $theme_path . '/images/arrow-desc.png', 'alt' => t('sort descending'), 'width' => 13, 'height' => 13, 'title' => t('sort descending')));
+    return icon('seven-sort-up', array(
+      'alt' => t('sort descending'),
+      'attributes' => array(
+        'class' => array('tablesort tablesort-desc'),
+      ),
+    ));
   }
 }
 
@@ -114,10 +132,7 @@ function seven_breadcrumb($variables) {
   $breadcrumb = $variables['breadcrumb'];
   $output = '';
   if (!empty($breadcrumb)) {
-    $output .= '<nav role="navigation" class="breadcrumb">';
-    // Provide a navigational heading to give context for breadcrumb links to
-    // screen-reader users. Make the heading invisible with .element-invisible.
-    $output .= '<h2 class="element-invisible">' . t('You are here') . '</h2>';
+    $output .= '<nav class="breadcrumb" aria-label="' . t('Website Orientation') . '">';
     $output .= '<ol>';
     // IE8 does not support :first-child and :last-child selectors, so we need
     // to add classes.

@@ -32,17 +32,15 @@ function bartik_css_alter(&$css) {
  * @see layout.tpl.php
  */
 function bartik_preprocess_layout(&$variables) {
-  if ($variables['content']['header']) {
-    $tab_class = theme_get_setting('main_menu_tabs');
-    $variables['content']['header'] = '<div class="l-header-inner ' . $tab_class . '">' . $variables['content']['header'] . '</div>';
+  if (isset($variables['content']['header'])) {
+    $extra_header_classes = array();
+    $extra_header_classes[] = theme_get_setting('main_menu_tabs');
+    $legacy = array('one_column', 'two_column', 'two_column_flipped', 'three_three_four_column');
+    if (in_array($variables['layout']->layout_template, $legacy)) {
+      $extra_header_classes[] = 'l-header-inner';
+    }
+    $variables['content']['header'] = '<div class="' . implode(' ', $extra_header_classes) . '">' . $variables['content']['header'] . '</div>';
   }
-}
-
-/**
- * Overrides theme_menu_tree().
- */
-function bartik_menu_tree($variables) {
-  return '<ul class="menu clearfix">' . $variables['tree'] . '</ul>';
 }
 
 /**

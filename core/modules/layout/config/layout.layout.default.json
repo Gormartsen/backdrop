@@ -1,13 +1,13 @@
 {
   "_config_name": "layout.layout.default",
-  "path": "",
+  "path": null,
   "name": "default",
   "title": "Default Layout",
   "description": null,
   "module": "layout",
   "weight": 0,
   "storage": 4,
-  "layout": "two_column",
+  "layout_template": "moscone_flipped",
   "disabled": false,
   "settings": {
     "title": "",
@@ -25,11 +25,10 @@
     "footer": [
       "cd4d033d-3f67-4191-8655-85ee758877c0"
     ],
-    "sidebar": [
-      "b7efc039-1518-4331-9808-8e5060a3caed"
-    ],
+    "sidebar": [],
     "top": [
-      "09f11b4e-877e-45ab-9000-a4c6254faa04"
+      "09f11b4e-877e-45ab-9000-a4c6254faa04",
+      "a549d0bc-51f7-46b0-9b41-653788410dd4"
     ]
   },
   "content": {
@@ -72,9 +71,11 @@
           "title_display": "none",
           "title": "",
           "style": "default",
-          "block_settings": [
-            
-          ],
+          "block_settings": {
+            "style": "dropdown",
+            "level": 1,
+            "depth": 0
+          },
           "contexts": [
             
           ]
@@ -144,33 +145,6 @@
         }
       }
     },
-    "b7efc039-1518-4331-9808-8e5060a3caed": {
-      "plugin": "user:login",
-      "data": {
-        "module": "user",
-        "delta": "login",
-        "settings": {
-          "title_display": "default",
-          "title": "",
-          "style": "default",
-          "block_settings": [
-            
-          ],
-          "contexts": [
-            
-          ]
-        },
-        "uuid": "b7efc039-1518-4331-9808-8e5060a3caed",
-        "style": {
-          "plugin": "default",
-          "data": {
-            "settings": {
-              "classes": ""
-            }
-          }
-        }
-      }
-    },
     "cd4d033d-3f67-4191-8655-85ee758877c0": {
       "plugin": "system:powered-by",
       "data": {
@@ -188,6 +162,36 @@
           ]
         },
         "uuid": "cd4d033d-3f67-4191-8655-85ee758877c0",
+        "style": {
+          "plugin": "default",
+          "data": {
+            "settings": {
+              "classes": ""
+            }
+          }
+        }
+      }
+    },
+    "a549d0bc-51f7-46b0-9b41-653788410dd4": {
+      "plugin": "system:page_components:title_combo",
+      "data": {
+        "module": "system",
+        "delta": "page_components",
+        "settings": {
+          "title_display": "default",
+          "title": "",
+          "style": "default",
+          "block_settings": [
+            
+          ],
+          "contexts": [
+            
+          ],
+          "title_tag": "h1",
+          "title_classes": "page-title",
+          "tab-type": "both"
+        },
+        "uuid": "a549d0bc-51f7-46b0-9b41-653788410dd4",
         "style": {
           "plugin": "default",
           "data": {

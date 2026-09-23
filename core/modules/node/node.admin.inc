@@ -1,7 +1,7 @@
 <?php
 /**
  * @file
- * Content administration and module settings UI.
+ * Admin page callbacks for the Node module.
  */
 
 /**
@@ -52,7 +52,7 @@ function node_mass_update($nodes, $updates) {
       ),
       'finished' => '_node_mass_update_batch_finished',
       'title' => t('Processing'),
-      // We use a single multi-pass operation, so the default
+      // We use a single multipass operation, so the default
       // 'Remaining x of y operations' message will be confusing here.
       'progress_message' => '',
       'error_message' => t('The update has encountered an error.'),
@@ -163,8 +163,14 @@ function _node_mass_update_batch_finished($success, $results, $operations) {
  * @ingroup forms
  */
 function node_multiple_delete_confirm($form, &$form_state) {
-  if (isset($_SESSION['node_delete_action']['timestamp']) && (REQUEST_TIME - $_SESSION['node_delete_action']['timestamp'] < 6000)) {
+  if (isset($form_state['nids'])) {
+    $nids = $form_state['nids'];
+  }
+  elseif (isset($_SESSION['node_delete_action']['timestamp']) && (REQUEST_TIME - $_SESSION['node_delete_action']['timestamp'] < 6000)) {
     $nids = $_SESSION['node_delete_action']['nids'];
+    $form_state['nids'] = $nids;
+    $form_state['cache'] = TRUE;
+    unset($_SESSION['node_delete_action']);
   }
   else {
     $nids = array();
@@ -193,7 +199,7 @@ function node_multiple_delete_confirm($form, &$form_state) {
     $form['node_list']['#items'][] = check_plain($title);
   }
 
-  $confirm_question = format_plural(count($rows), 'Are you sure you want to delete this item?', 'Are you sure you want to delete these items?');
+  $confirm_question = format_plural(count($rows), 'Are you sure you want to delete this content item?', 'Are you sure you want to delete these content items?');
   return confirm_form($form, $confirm_question, 'admin/content', t('This action cannot be undone.'), t('Delete'), t('Cancel'));
 }
 
@@ -204,12 +210,8 @@ function node_multiple_delete_confirm_submit($form, &$form_state) {
   node_delete_multiple(array_keys($form_state['values']['nodes']));
   cache_clear_all();
   $count = count($form_state['values']['nodes']);
-  watchdog('content', 'Deleted @count posts.', array('@count' => $count));
+  watchdog('content', 'Deleted @count content items.', array('@count' => $count));
 
-  if (isset($_SESSION['node_delete_action'])) {
-    unset($_SESSION['node_delete_action']);
-  }
-
-  backdrop_set_message(format_plural($count, 'Deleted 1 post.', 'Deleted @count posts.'));
+  backdrop_set_message(format_plural($count, 'Deleted 1 content item.', 'Deleted @count content items.'));
   $form_state['redirect'] = 'admin/content';
 }

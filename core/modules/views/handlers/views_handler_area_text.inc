@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Definition of views_handler_area_text.
@@ -28,7 +27,6 @@ class views_handler_area_text extends views_handler_area {
       '#default_value' => $this->options['content'],
       '#rows' => 6,
       '#format' => isset($this->options['format']) ? $this->options['format'] : filter_default_format(),
-      '#wysiwyg' => FALSE,
     );
 
     // @TODO: Refactor token handling into a base class.
@@ -51,7 +49,7 @@ class views_handler_area_text extends views_handler_area {
     }
 
     if (!empty($options)) {
-      $output = '<p>' . t('The following tokens are available. If you would like to have the characters \'[\' and \']\' please use the html entity codes \'%5B\' or  \'%5D\' or they will get replaced with empty space.' . '</p>');
+      $output = '<p>' . t('The following tokens are available. If you would like to have the characters \'[\' and \']\' please use the html entity codes \'%5B\' or  \'%5D\' or they will get replaced with empty space.</p>');
       foreach (array_keys($options) as $type) {
         if (!empty($options[$type])) {
           $items = array();

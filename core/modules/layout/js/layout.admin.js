@@ -18,7 +18,7 @@ Backdrop.behaviors.layoutList = {
   attach: function(context) {
     var $element = $(context).find('.layout-options');
     if ($element.length) {
-      if ($element.css('flex-wrap')) {
+      if (Backdrop.featureDetect.flexbox()) {
         $element.addClass('flexbox');
       }
       else {
@@ -33,23 +33,47 @@ Backdrop.behaviors.layoutList = {
  */
 Backdrop.behaviors.layoutConfigure = {
   attach: function(context) {
-    var $form = $('.layout-settings-form').once('layout-settings');
+
+    /**
+     * Toggle handler for the examples.
+     */
+    function examples_toggle_handler(e) {
+      var $examples = $(this).next().toggle();
+      if ($examples.is(':visible')) {
+        $(this).text(Backdrop.t('Hide examples')).append('<span class="arrow close"></span>');
+      }
+      else {
+        $(this).text(Backdrop.t('Show examples')).append('<span class="arrow"></span>');
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    var $form = $('.layout-settings-form');
     if ($form.length && Backdrop.ajax) {
       var ajax = Backdrop.ajax['edit-path-update'];
       var updateContexts = function() {
         // Cancel existing AJAX requests and start a new one.
-        for (var n = 0; n < ajax.currentRequests.lenth; n++) {
+        for (var n = 0; n < ajax.currentRequests.length; n++) {
           ajax.currentRequests[n].abort();
           ajax.cleanUp(ajax.currentRequests[n]);
         }
         $('input[data-layout-path-update]').triggerHandler('mousedown');
       };
+
       // Update contexts after a slight typing delay.
       var timer = 0;
-      $('input[name="path"]').on('keyup', function(e) {
+      $('input.data-layout-additional-path, input[name="path"]').once('update-contexts').on('keyup', function(e) {
         clearTimeout(timer);
         timer = setTimeout(updateContexts, 200);
       });
+    }
+
+    // Handle toggling the examples.
+    var $examplesToggle = $('a.layout-placeholder-examples-toggle').once('examples-toggle');
+    if ($examplesToggle.length) {
+      $examplesToggle.on('click', examples_toggle_handler);
+      $form.find('.layout-placeholder-examples').hide();
     }
 
     // Convert AJAX buttons to links.
@@ -83,11 +107,162 @@ Backdrop.behaviors.layoutDisplayEditor = {
     if ($regions.length) {
       $regions.sortable({
         connectWith: '.layout-editor-region-content',
+        tolerance: 'pointer',
         update: Backdrop.behaviors.layoutDisplayEditor.updateLayout,
         items: '.layout-editor-block',
         placeholder: 'layout-editor-placeholder layout-editor-block',
         forcePlaceholderSize: true
       });
+
+      // Allow keyboard navigation
+      // Get the list of droppables, that is regions where we can drop blocks.
+      var droppables = $.map($('.layout-editor-region'), function (item) {return $(item).attr('id')});
+
+      // Find the next region.
+      var findNextDroppable = function (current, arr) {
+        var index = arr.indexOf(current);
+        if (index >= 0 && index < arr.length - 1) {
+          return arr[index + 1]
+        }
+        return false;
+      }
+
+      // Find the previous region.
+      var findPreviousDroppable = function (current, arr) {
+        var index = arr.indexOf(current);
+        if (index > 0 && index <= arr.length - 1) {
+          return arr[index - 1]
+        }
+        return false;
+      }
+
+      // Check if an element is in the viewport.
+      $.fn.isInViewport = function () {
+        let elementTop = $(this).offset().top;
+        let elementBottom = elementTop + $(this).outerHeight();
+
+        let viewportTop = $(window).scrollTop();
+        let viewportBottom = viewportTop + $(window).height();
+
+        return elementBottom > viewportTop && elementTop < viewportBottom;
+      }
+
+      // Scroll to a droppable if it's not visible.
+      var scrollIfNotVisible = function (nextDroppableId) {
+        if ($('#' + nextDroppableId).isInViewport() === false) {
+          var $nextDroppable = $('#' + nextDroppableId);
+          var _offset = $nextDroppable.offset();
+          $('html, body').animate({
+            scrollTop: _offset.top,
+            scrollLeft: _offset.left
+          });
+        }
+      }
+
+      $('#layout-edit-main').on('keydown', '.layout-editor-block', function(event) {
+        var currentDroppable = $(this).closest('.layout-editor-region');
+        var currentDroppableId = currentDroppable.attr('id');
+        var that = $(this);
+
+        // Announce on block movement.
+        var announceBlock = function (changedRegion, newDroppable) {
+          var blockTitle = that.find('span.text').html();
+          var regionTitle = newDroppable.find('h2.label').html();
+          var newDroppableId = newDroppable.attr('id');
+          var countBlocks = $('#' + newDroppableId + ' .layout-editor-block').length;
+          var blockPosition = that.index() + 1;
+          var announceMessage = '';
+          if (changedRegion) {
+            announceMessage = Backdrop.t('Block moved to region !region_title', {
+              '!region_title': regionTitle
+            });
+          }
+          else {
+            announceMessage = Backdrop.t('Block moved.');
+          }
+          announceMessage += Backdrop.t('Now in position !block_position of !count_blocks', {
+            '!block_position': blockPosition,
+            '!count_blocks': countBlocks,
+          });
+          Backdrop.announce(announceMessage);
+        }
+
+        // Press right arrow to move block to next region.
+        if (event.which == 39) {
+          var nextDroppableId = findNextDroppable(currentDroppableId, droppables);
+
+          if (!nextDroppableId) {
+            return;
+          }
+
+          scrollIfNotVisible(nextDroppableId);
+
+          var droppableParentId = '#' + nextDroppableId;
+          var droppable = $(droppableParentId + ' .layout-editor-region-content');
+          droppable.append($(this));
+          $(this).focus();
+          announceBlock(true, $(droppableParentId));
+        }
+
+        // Press left arrow to move block to previous region.
+        if (event.which == 37) {
+          var nextDroppableId = findPreviousDroppable(currentDroppableId, droppables);
+
+          if (!nextDroppableId) {
+            return;
+          }
+
+          scrollIfNotVisible(nextDroppableId);
+
+          var droppableParentId = '#' + nextDroppableId;
+          var droppable = $(droppableParentId + ' .layout-editor-region-content');
+          droppable.append($(this));
+          $(this).focus();
+          announceBlock(true, $(droppableParentId));
+        }
+
+        // Press up to move block up by one position.
+        if (event.which == 38) {
+          $(this).insertBefore($(this).prev());
+          $(this).focus();
+          announceBlock(false, currentDroppable);
+        }
+        // Press down to move block down by one position.
+        if (event.which == 40) {
+          $(this).insertAfter($(this).next());
+          $(this).focus();
+          announceBlock(false, currentDroppable);
+        }
+        // Press t or "page up" to move block to top of region.
+        if (event.which == 84 || event.which == 33) {
+          $(this).parent().prepend($(this));
+          $(this).focus();
+          announceBlock(false, currentDroppable);
+        }
+        // Press b or "page down" to move block to bottom of region.
+        if (event.which == 66 || event.which == 34) {
+          $(this).parent().append($(this));
+          $(this).focus();
+          announceBlock(false, currentDroppable);
+        }
+
+        var region = $(this).closest('.layout-editor-region');
+        updateLayoutOnKeyInput(region);
+
+        if (currentDroppable) {
+          updateLayoutOnKeyInput(currentDroppable);
+        }
+      });
+
+      // Update block list on hidden input element.
+      var updateLayoutOnKeyInput = function (region) {
+        var regionName = region.data('regionName');
+        var blockList = [];
+        region.find('.layout-editor-block').each(function(index) {
+          blockList.push($(this).data('blockId'));
+        });
+        $('input[name="content[positions][' + regionName + ']"]').val(blockList.join(','));
+      }
 
       // Open a dialog if editing a particular block.
       var blockUuid = window.location.hash.replace(/#configure-block:/, '');
@@ -96,7 +271,7 @@ Backdrop.behaviors.layoutDisplayEditor = {
           $('[data-block-id="' + blockUuid + '"]').find('li.configure > a').triggerHandler('click');
           // Clear out the hash. Use history if available, preventing another
           // entry (which would require two back button clicks). Fallback to
-          // directlty updating the URL in the location bar.
+          // directly updating the URL in the location bar.
           if (window.history && window.history.replaceState) {
             window.history.replaceState({}, '', '#');
           }
@@ -105,6 +280,18 @@ Backdrop.behaviors.layoutDisplayEditor = {
           }
         }, 100);
       }
+    }
+
+    var $flexible_regions = $('.layout-flexible-editor').once('layout-sortable');
+    if ($flexible_regions.length) {
+      $flexible_regions.sortable({
+        connectWith: '.layout-flexible-content',
+        tolerance: 'pointer',
+        update: Backdrop.behaviors.layoutDisplayEditor.updateFlexibleLayout,
+        items: '.flexible-row',
+        placeholder: 'layout-editor-placeholder layout-editor-block',
+        forcePlaceholderSize: true
+      });
     }
 
     // Detect the addition of new blocks.
@@ -116,7 +303,18 @@ Backdrop.behaviors.layoutDisplayEditor = {
         positions.value += ',' + $(context).data('blockId');
       }
     }
+
+    // Disable the machine name field on text blocks if reusable is checked.
+    if ($('input[name="reusable"]').prop('checked')) {
+      $('span.field-suffix').show();
+    } else {
+      $('span.field-suffix').hide();
+    }
+    $('input[name="reusable"]').on('change', function() {
+      $('span.field-suffix').toggle();
+    });
   },
+
   /**
    * jQuery UI sortable update callback.
    */
@@ -127,6 +325,16 @@ Backdrop.behaviors.layoutDisplayEditor = {
       blockList.push($(this).data('blockId'));
     });
     $('input[name="content[positions][' + regionName + ']"]').val(blockList.join(','));
+  },
+  /**
+   * jQuery UI sortable update callback.
+   */
+  updateFlexibleLayout: function(event, ui) {
+    var blockList = [];
+    $(this).find('.flexible-row').each(function() {
+      blockList.push($(this).data('rowId'));
+    });
+    $('input[name="row_positions"]').val(blockList.join(','));
   }
 };
 
@@ -140,7 +348,7 @@ Backdrop.behaviors.blockListFilterByText = {
     var $rows, zebraClass;
     var zebraCounter = 0;
 
-    // Fliter the list of layouts by provided search string.
+    // Filter the list of layouts by provided search string.
     function filterBlockList() {
       var query = $input.val().toLowerCase();
 
@@ -183,7 +391,7 @@ Backdrop.behaviors.blockListFilterByText = {
       });
 
       // @todo Use autofocus attribute when possible.
-      $input.focus().on('keyup', filterBlockList);
+      $input.trigger('focus').on('keyup', filterBlockList);
     }
   }
 }

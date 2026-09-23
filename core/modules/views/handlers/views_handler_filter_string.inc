@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Definition of views_handler_filter_string.
@@ -238,8 +237,8 @@ class views_handler_filter_string extends views_handler_filter {
   /**
    * Add this filter to the query.
    *
-   * Due to the nature of fapi, the value and the operator have an unintended
-   * level of indirection. You will find them in $this->operator
+   * Due to the nature of Form API, the value and the operator have an
+   * unintended level of indirection. You will find them in $this->operator
    * and $this->value respectively.
    */
   function query() {
@@ -272,7 +271,7 @@ class views_handler_filter_string extends views_handler_filter {
     foreach ($matches as $match) {
       $phrase = false;
       // Strip off phrase quotes
-      if ($match[2]{0} == '"') {
+      if ($match[2][0] == '"') {
         $match[2] = substr($match[2], 1, -1);
         $phrase = true;
       }

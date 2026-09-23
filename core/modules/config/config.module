@@ -9,7 +9,7 @@
  */
 function config_menu() {
   $items['admin/config/development/configuration'] = array(
-    'title' => 'Configuration management',
+    'title' => 'Configuration manager',
     'description' => 'Import, export, and synchronize your configuration changes between different installations of your site, such as in development, staging, and production environments.',
     'page callback' => 'backdrop_get_form',
     'page arguments' => array('config_sync_form'),
@@ -21,9 +21,10 @@ function config_menu() {
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => 0,
   );
-  $items['admin/config/development/configuration/sync/diff'] = array(
+  $items['admin/config/development/configuration/sync/diff/%'] = array(
     'title' => 'Configuration diff',
     'page callback' => 'config_diff_page',
+    'page arguments' => array(6),
     'access arguments' => array('synchronize configuration'),
     'file' => 'config.admin.inc',
     'type' => MENU_LOCAL_TASK,
@@ -88,6 +89,7 @@ function config_permission() {
   $permissions['synchronize configuration'] = array(
     'title' => t('Synchronize, import, and export configuration'),
     'restrict access' => TRUE,
+    'warning' => t('Importing and synchronizing config allows access to, and manipulation of, all settings on the site.'),
   );
   return $permissions;
 }
@@ -98,7 +100,7 @@ function config_permission() {
 function config_file_download($uri) {
   $scheme = file_uri_scheme($uri);
   $target = file_uri_target($uri);
-  if ($scheme == 'temporary' && $target == 'config.tar.gz') {
+  if ($scheme == 'temporary' && $target == 'config.tar.gz' && user_access('synchronize configuration')) {
     return array(
       'Content-disposition' => 'attachment; filename="config.tar.gz"',
     );
@@ -152,8 +154,7 @@ function config_get_prefix_groups($type = 'active') {
   $groups = array();
   $ungrouped = t('Ungrouped');
 
-  $config_dir = config_get_config_directory($type);
-  $config_storage = new ConfigFileStorage($config_dir);
+  $config_storage = config_get_config_storage($type);
   foreach ($config_info_all as $prefix => $config_info) {
     $group = isset($config_info['group']) ? $config_info['group'] : $ungrouped;
     if (isset($config_info['label_callback']) || isset($config_info['label_key'])) {
@@ -182,7 +183,7 @@ function config_get_prefix_groups($type = 'active') {
 /**
  * Implements hook_config_data_validate().
  */
-function config_config_data_validate(Config $config, $config_info) {
+function config_config_data_validate(Config $config, ?array $config_info) {
   // This validation only applies to configs that have module-provided info.
   if (empty($config_info)) {
     return;

@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Callbacks and related functions invoked by authorize.php to update projects.
@@ -29,11 +28,18 @@
 function installer_authorize_run_update($filetransfer, $projects) {
   $operations = array();
   foreach ($projects as $project => $project_info) {
+    if ($project_info['project'] == 'backdrop') {
+      $updater_name = 'CoreUpdater';
+    }
+    else {
+      $updater_name = $project_info['updater_name'];
+    }
+
     $operations[] = array(
       'installer_authorize_batch_copy_project',
       array(
         $project_info['project'],
-        $project_info['updater_name'],
+        $updater_name,
         $project_info['local_url'],
         $filetransfer,
       ),
@@ -66,17 +72,19 @@ function installer_authorize_run_update($filetransfer, $projects) {
  *   The canonical project short name (e.g., {system}.name).
  * @param string $updater_name
  *   The name of the Updater class to use for installing this project.
- * @param string $local_url
- *   The URL to the locally installed temp directory where the project has
+ * @param string $project_realpath
+ *   The path to the locally installed temp directory where the project has
  *   already been downloaded and extracted into.
+ * @param string|FALSE $redirect_callback
+ *   Callback to handle the redirection to the authorize.php file.
  */
-function installer_authorize_run_install($filetransfer, $project, $updater_name, $local_url) {
+function installer_authorize_run_install($filetransfer, $project, $updater_name, $project_realpath, $redirect_callback = 'backdrop_goto') {
   $operations[] = array(
     'installer_authorize_batch_copy_project',
     array(
       $project,
       $updater_name,
-      $local_url,
+      $project_realpath,
       $filetransfer,
     ),
   );
@@ -93,7 +101,7 @@ function installer_authorize_run_install($filetransfer, $project, $updater_name,
   batch_set($batch);
 
   // Invoke the batch via authorize.php.
-  system_authorized_batch_process();
+  system_authorized_batch_process($redirect_callback);
 }
 
 /**
@@ -103,15 +111,15 @@ function installer_authorize_run_install($filetransfer, $project, $updater_name,
  *   The canonical short name of the project being installed.
  * @param string $updater_name
  *   The name of the Updater class to use for installing this project.
- * @param string $local_url
- *   The URL to the locally installed temp directory where the project has
+ * @param string $project_realpath
+ *   The path to the locally installed temp directory where the project has
  *   already been downloaded and extracted into.
  * @param FileTransfer $filetransfer
  *   The FileTransfer object to use for performing this operation.
  * @param array $context
  *   Reference to an array used for Batch API storage.
  */
-function installer_authorize_batch_copy_project($project, $updater_name, $local_url, $filetransfer, &$context) {
+function installer_authorize_batch_copy_project($project, $updater_name, $project_realpath, $filetransfer, &$context) {
 
   // Initialize some variables in the Batch API $context array.
   if (!isset($context['results']['log'])) {
@@ -139,8 +147,8 @@ function installer_authorize_batch_copy_project($project, $updater_name, $local_
     return;
   }
 
-  /* @var Updater $updater */
-  $updater = new $updater_name($local_url);
+  /** @var Updater $updater */
+  $updater = new $updater_name($project_realpath);
 
   try {
     if ($updater->isInstalled()) {
@@ -222,7 +230,7 @@ function installer_authorize_update_batch_finished($success, $results) {
   // Since we're doing an update of existing code, always add a task for
   // running update.php.
   $results['tasks'][] = t('Your projects have been downloaded and updated.');
-  $results['tasks'][] = t('<a href="@update">Run database updates</a>', array('@update' => base_path() . 'core/update.php'));
+  $results['tasks'][] = t('<a href="@update">Run site updates</a>', array('@update' => base_path() . 'core/update.php'));
 
   // Unset the variable since it is no longer needed.
   unset($_SESSION['maintenance_mode']);

@@ -31,7 +31,7 @@ DESCRIPTION
     which are stored in the object.  Try it, it's fun!
 
 METHODS
-    $m->evalute($expr)
+    $m->evaluate($expr)
         Evaluates the expression and returns the result.  If an error occurs,
         prints a warning and returns false.  If $expr is a function assignment,
         returns true on success.
@@ -196,7 +196,7 @@ class EvalMath {
         return $this->trigger("illegal character '_'"); // but not in the input expression
         //===============
       } elseif ((in_array($op, $ops) or $ex) and $expecting_op) { // are we putting an operator on the stack?
-        if ($ex) { // are we expecting an operator but have a number/variable/function/opening parethesis?
+        if ($ex) { // are we expecting an operator but have a number/variable/function/opening parenthesis?
           $op = '*'; $index--; // it's an implicit multiplication
         }
         // heart of the algorithm:
@@ -245,7 +245,6 @@ class EvalMath {
       } elseif ($op == '(' and !$expecting_op) {
         $stack->push('('); // that was easy
         $index++;
-        $allow_neg = true;
         //===============
       } elseif ($ex and !$expecting_op) { // do we now have a function/variable/number?
         $expecting_op = true;
@@ -270,7 +269,7 @@ class EvalMath {
       } elseif (in_array($op, $ops) and !$expecting_op) {
         return $this->trigger("unexpected operator '$op'");
       } else { // I don't even want to know what you did to get here
-        return $this->trigger("an unexpected error occured");
+        return $this->trigger("an unexpected error occurred");
       }
       if ($index == strlen($expr)) {
         if (in_array($op, $ops)) { // did we end with an operator? bad.

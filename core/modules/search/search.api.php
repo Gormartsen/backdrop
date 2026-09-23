@@ -29,8 +29,9 @@
  *
  * @return
  *   Array with optional keys:
- *   - title: Title for the tab on the search page for this module. Defaults
- *     to the module name if not given.
+ *   - title: Title for the tab on the search page for this module. Title must
+ *     be untranslated, but to register it within translation database pass it
+ *     through the t() function separately.
  *   - path: Path component after 'search/' for searching with this module.
  *     Defaults to the module name if not given.
  *   - conditions_callback: An implementation of callback_search_conditions().
@@ -38,6 +39,11 @@
  * @ingroup search
  */
 function hook_search_info() {
+  // If the title string 'Content' will need to be translated, register it in
+  // the translation system by calling t() before returning the untranslated
+  // string below.
+  t('Content');
+
   return array(
     'title' => 'Content',
     'path' => 'node',
@@ -166,7 +172,7 @@ function hook_search_admin() {
  */
 function hook_search_execute($keys = NULL, $conditions = NULL) {
   // Build matching conditions
-  $query = db_select('search_index', 'i', array('target' => 'slave'))->extend('SearchQuery')->extend('PagerDefault');
+  $query = db_select('search_index', 'i', array('target' => 'replica'))->extend('SearchQuery')->extend('PagerDefault');
   $query->join('node', 'n', 'n.nid = i.sid');
   $query
     ->condition('n.status', 1)
@@ -224,8 +230,8 @@ function hook_search_execute($keys = NULL, $conditions = NULL) {
  * Override the rendering of search results.
  *
  * A module that implements hook_search_info() to define a type of search may
- * implement this hook in order to override the default theming of its search
- * results, which is otherwise themed using theme('search_results').
+ * implement this hook in order to override the default markup of search
+ * results.
  *
  * @param $results
  *   An array of search results.
@@ -255,7 +261,7 @@ function hook_search_page($results) {
  * - Adding spaces between words of Chinese or Japanese text.
  * - Stemming words down to their root words to allow matches between, for
  *   instance, walk, walked, walking, and walks in searching.
- * - Expanding abbreviations and acronymns that occur in text.
+ * - Expanding abbreviations and acronyms that occur in text.
  *
  * @param $text
  *   The text to preprocess. This is a single piece of plain text extracted

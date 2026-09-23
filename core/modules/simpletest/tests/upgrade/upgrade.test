@@ -31,12 +31,11 @@ abstract class UpgradePathTestCase extends BackdropWebTestCase {
    * Checks that zlib is enabled in order to run the upgrade tests.
    */
   protected function checkRequirements() {
+    $errors = parent::checkRequirements();
     if (!function_exists('gzopen')) {
-      return array(
-        'Missing zlib requirement for upgrade tests.',
-      );
+      $errors[] = 'Missing zlib requirement for upgrade tests.';
     }
-    return parent::checkRequirements();
+    return $errors;
   }
 
   /**
@@ -165,7 +164,7 @@ abstract class UpgradePathTestCase extends BackdropWebTestCase {
    *
    * @param $register_errors
    *   Register the errors during the upgrade process as failures.
-   * @return
+   * @return bool
    *   TRUE if the upgrade succeeded, FALSE otherwise.
    */
   protected function performUpgrade($register_errors = TRUE) {
@@ -176,6 +175,15 @@ abstract class UpgradePathTestCase extends BackdropWebTestCase {
     if (!$this->assertResponse(200)) {
       return FALSE;
     }
+
+    // Confirm the upgrade from D7 state has been set.
+    backdrop_static_reset('states');
+    $d7_upgrade_state = state_get('update_d7_upgrade');
+    $this->assertTrue($d7_upgrade_state, 'The "update_d7_upgrade" state has been set before the update.');
+
+    // When upgrading from Drupal 7, the backup step should not be shown.
+    $this->assertNoRaw('<span class="task-item">Backup</span>');
+    $this->assertRaw('<span class="task-item">Review updates</span>');
 
     // Continue.
     $this->backdropPost(NULL, array(), t('Continue'));
@@ -211,6 +219,11 @@ abstract class UpgradePathTestCase extends BackdropWebTestCase {
       return FALSE;
     }
 
+    // Confirm the upgrade from D7 state is now cleared.
+    backdrop_static_reset('states');
+    $d7_upgrade_state = state_get('update_d7_upgrade');
+    $this->assertNull($d7_upgrade_state, 'The "update_d7_upgrade" state has been cleared after the update.');
+
     // Upgrade succeed, rebuild the environment so that we can call the API
     // of the child site directly from this request.
     $this->upgradedSite = TRUE;
@@ -233,9 +246,9 @@ abstract class UpgradePathTestCase extends BackdropWebTestCase {
     $this->refreshVariables();
     $this->checkPermissions(array(), TRUE);
 
-    // Check we can load the front page of the new site.
+    // Check we can load the home page of the new site.
     $this->backdropGet('');
-    return $this->assertText('Powered by Backdrop CMS', 'The front page of the upgraded site loads successfully.');
+    return $this->assertText('Powered by Backdrop CMS', 'The home page of the upgraded site loads successfully.');
   }
 
   /**

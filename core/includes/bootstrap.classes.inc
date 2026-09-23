@@ -1,10 +1,15 @@
 <?php
+/**
+ * @file
+ * A list of classes used by Backdrop core.
+ */
 
 /**
  * Lists all the classes used by Backdrop core.
+ *
+ * @return array
  */
 function backdrop_class_list() {
-
   $path = BACKDROP_ROOT . '/core/includes/';
 
   // Classes in /core/includes.
@@ -14,11 +19,12 @@ function backdrop_class_list() {
     'BatchQueue' => $path . 'batch.queue.inc',
     'BatchMemoryQueue' => $path . 'batch.queue.inc',
     'BackdropCacheArray' => $path . 'bootstrap.inc',
-    'SchemaCache' => $path . 'boostrap.inc',
+    'SchemaCache' => $path . 'bootstrap.inc',
     'BackdropFakeCache' => $path . 'cache-install.inc',
     'BackdropNullCache' => $path . 'cache.inc',
     'BackdropDatabaseCache' => $path . 'cache.inc',
     'BackdropCacheInterface' => $path . 'cache.inc',
+    'BackdropDateTime' => $path . 'date.class.inc',
     'Color' => $path . 'color.inc',
     'Diff' => $path . 'diff.inc',
     'DiffOp' => $path . 'diff.inc',
@@ -32,10 +38,12 @@ function backdrop_class_list() {
     'WordLevelDiff' => $path . 'diff.inc',
     'DiffFormatter' => $path . 'diff.inc',
     'BackdropDiffFormatter' => $path . 'diff.inc',
+    'BackdropHTTPSystemInterface' => $path . 'http_system.inc',
     'DatabaseTasks' => $path . 'install.inc',
     'DatabaseTaskException' => $path . 'install.inc',
     'MailSystemInterface' => $path . 'mail.inc',
     'PagerDefault' => $path . 'pager.class.inc',
+    'BackdropSessionHandler' => $path . 'session.inc',
     'BackdropLocalStreamWrapper' => $path . 'stream_wrappers.inc',
     'BackdropPublicStreamWrapper' => $path . 'stream_wrappers.inc',
     'BackdropPrivateStreamWrapper' => $path . 'stream_wrappers.inc',
@@ -49,12 +57,14 @@ function backdrop_class_list() {
     'Updater' => $path . 'updater.inc',
     'UpdaterException' => $path . 'updater.inc',
     'UpdaterFileTransferException' => $path . 'updater.inc',
+    'UserInterface' => $path . 'userinterface.inc',
     'Uuid' => $path . 'uuid.inc',
     'UuidPecl' => $path . 'uuid.inc',
     'UuidCom' => $path . 'uuid.inc',
     'UuidPhp' => $path . 'uuid.inc',
     'UuidInterface' => $path . 'uuid.inc',
 
+    'DatabaseCharsetConverter' => $path . 'database/charset_converter.inc',
     'DatabaseConnection' => $path . 'database/database.inc',
     'Database' => $path . 'database/database.inc',
     'DatabaseTransactionNoActiveException' => $path . 'database/database.inc',
@@ -72,7 +82,8 @@ function backdrop_class_list() {
     'DatabaseStatementEmpty' => $path . 'database/database.inc',
     'DatabaseStatementInterface' => $path . 'database/database.inc',
     'DatabaseLog' => $path . 'database/log.inc',
-    'DatabaseStatementPrefetch' => $path . 'database/prefetch.inc',
+    // @todo Remove DatabaseStatementPrefetch entirely, only used by SQLite.
+    // 'DatabaseStatementPrefetch' => $path . 'database/prefetch.inc',
     'Query' => $path . 'database/query.inc',
     'InsertQuery' => $path . 'database/query.inc',
     'DeleteQuery' => $path . 'database/query.inc',
@@ -90,6 +101,12 @@ function backdrop_class_list() {
     'SelectQuery' => $path . 'database/select.inc',
     'QueryExtendableInterface' => $path . 'database/select.inc',
     'SelectQueryInterface' => $path . 'database/select.inc',
+
+    'Backup' => $path . 'backup/backup.class.inc',
+    'BackupConfig' => $path . 'backup/backup.config.inc',
+    'BackupDatabase' => $path . 'backup/backup.database.inc',
+    'BackupFile' => $path . 'backup/backup.file.inc',
+    'BackupMySql' => $path . 'backup/backup.mysql.inc',
 
     'DatabaseConnection_mysql' => $path . 'database/mysql/database.inc',
     'DatabaseTasks_mysql' => $path . 'database/mysql/install.inc',

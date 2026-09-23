@@ -5,10 +5,10 @@
  */
 
 /**
- * Implements hook_layout_info().
+ * Implements hook_layout_template_info().
  */
-function layout_test_layout_info() {
-  $layouts['layout_test_layout'] = array(
+function layout_test_layout_template_info() {
+  $layout_templates['layout_test_layout_template'] = array(
     'title' => 'Layout test layout',
     'regions' => array(
       'header' => t('Header'),
@@ -18,10 +18,10 @@ function layout_test_layout_info() {
       'footer' => t('Footer'),
     ),
     'default region' => 'content',
-    'path' => 'layout_test_layout',
+    'path' => 'layout_test_layout_template',
   );
 
-  return $layouts;
+  return $layout_templates;
 }
 
 /**
@@ -47,6 +47,17 @@ function layout_test_block_info() {
       'node' => 'node',
     ),
   );
+  $blocks['test_passthrough'] = array(
+    'info' => t('String pass-through test'),
+    'description' => t('A testing block for layouts that shows string from the URL.'),
+    'required contexts' => array(
+      'string_value' => 'string',
+    ),
+  );
+  $blocks['simple_text'] = array(
+    'info' => t('A simple text block'),
+    'description' => t('A simple flat string for the most basic testing.'),
+  );
   return $blocks;
 }
 
@@ -57,6 +68,12 @@ function layout_test_menu() {
   $items['layout-test-path'] = array(
     'title' => 'Layout test title',
     'page callback' => 'layout_test_path',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['custom-layout-type-test-page'] = array(
+    'title' => 'Custom layout type test page',
+    'page callback' => 'layout_test_custom_layout_type_test_page',
     'access callback' => TRUE,
     'type' => MENU_CALLBACK,
   );
@@ -80,12 +97,23 @@ function layout_test_block_view($delta = '', $settings = array(), $contexts = ar
 
     case 'bar':
       $block['subject'] = 'Bar subject';
-      $block['content'] = format_string('The user name is @name and the node title is @title', array('@name' => $contexts['my_user']->name, '@title' => $contexts['my_node']->title));
+      $mail = !empty($contexts['my_user']->mail) ? $contexts['my_user']->mail : 'unavailable';
+      $block['content'] = format_string('The user email is @mail and the node title is @title', array('@mail' => $mail, '@title' => $contexts['my_node']->title));
       break;
 
     case 'test_node_title':
       $block['subject'] = 'Node title';
       $block['content'] = format_string('The node title is @title', array('@title' => $contexts['node']->title));
+      break;
+
+    case 'test_passthrough':
+      $block['subject'] = 'Passthrough title';
+      $block['content'] = format_string('The page argument is @string', array('@string' => $contexts['string_value']));
+      break;
+
+    case 'simple_text':
+      $block['subject'] = 'Simple text';
+      $block['content'] = t('This is a simple text block to test custom layout types.');
       break;
   }
   return $block;
@@ -118,9 +146,67 @@ function layout_test_path() {
 }
 
 /**
+ * Menu callback; Display a test page with a custom layout type.
+ */
+function layout_test_custom_layout_type_test_page() {
+  $custom_layout_template = layout_flexible_template_load('default', 'custom_test');
+  $config = array(
+    'name' => 'custom_layout_test',
+    'title' => 'Custom Layout Test',
+    'is_new' => TRUE,
+    'layout_template' => $custom_layout_template->name,
+    'layout_template_type' => 'custom_test',
+    'is_full_page' => FALSE,
+  );
+  $custom_layout = new Layout($config);
+  $custom_layout->addBlock('layout_test', 'simple_text', 'custom-layout-default-template--0');
+  $renderer = layout_create_renderer('standard', $custom_layout);
+  return $renderer->render();
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function layout_test_config_info() {
+  $prefixes['layout.custom_test'] = array(
+    'name_key' => 'name',
+    'label_key' => 'title',
+    'group' => t('Custom Layout Type for Tests'),
+  );
+  return $prefixes;
+}
+
+/**
+ * Implements hook_theme_registry_alter().
+ *
+ * Ensure the flexible layout template is registered, whether or not it is
+ * being used in core layouts.
+ */
+function layout_test_theme_registry_alter(&$theme_registry) {
+  if (!isset($theme_registry['layout__flexible'])) {
+    $theme_registry['layout__flexible'] = array(
+      'variables' => array(
+        'content' => NULL,
+        'settings' => NULL,
+        'layout' => NULL,
+        'layout_template_info' => NULL,
+        'renderer' => NULL,
+        'attributes' => array(),
+        'admin' => FALSE,
+      ),
+      'template' => 'layout--flexible',
+      'path' => backdrop_get_path('module', 'layout') . '/templates',
+      'theme path' => backdrop_get_path('module', 'layout') . '/templates',
+      'type' => 'module',
+      'base hook' => 'layout',
+    );
+  }
+}
+
+/**
  * Implements hook_layout_presave().
  */
-function layout_test_layout_presave($layout_name, $layout) {
+function layout_test_layout_presave($layout) {
   $return = state_get('layout_test');
   $return[] = (__FUNCTION__ . ' called');
   state_set('layout_test', $return);
@@ -187,4 +273,22 @@ function layout_test_layout_revert($layout) {
   $return = state_get('layout_test');
   $return[] = (__FUNCTION__ . ' called');
   state_set('layout_test', $return);
+}
+/**
+ * Implements hook_autoload_info().
+ */
+function layout_test_autoload_info() {
+  return array(
+    'LayoutTestRenderer' => 'layout_test_renderer.inc',
+  );
+}
+
+/**
+ * Implements hook_layout_renderer_info().
+ */
+function layout_test_layout_renderer_info() {
+  $info['test_renderer'] = array(
+    'class' => 'LayoutTestRenderer',
+  );
+  return $info;
 }

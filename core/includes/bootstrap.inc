@@ -7,7 +7,7 @@
 /**
  * The current system version.
  */
-define('BACKDROP_VERSION', '1.3.x-dev');
+define('BACKDROP_VERSION', '1.36.x-dev');
 
 /**
  * Core API compatibility.
@@ -17,7 +17,7 @@ define('BACKDROP_CORE_COMPATIBILITY', '1.x');
 /**
  * Minimum supported version of PHP.
  */
-define('BACKDROP_MINIMUM_PHP', '5.3.2');
+define('BACKDROP_MINIMUM_PHP', '7.1.0');
 
 /**
  * Minimum recommended value of PHP memory_limit.
@@ -63,6 +63,7 @@ define('CACHE_TEMPORARY', -1);
  * comment, "And it's also not a bug, as Windows just have less log levels,"
  * and "So the behavior you're seeing is perfectly normal."
  *
+ * @see https://en.wikipedia.org/wiki/Syslog#Severity_level
  * @see http://www.faqs.org/rfcs/rfc3164.html
  * @see http://bugs.php.net/bug.php?id=18090
  * @see http://php.net/manual/function.syslog.php
@@ -97,7 +98,7 @@ define('WATCHDOG_ERROR', 3);
 define('WATCHDOG_WARNING', 4);
 
 /**
- * Log message severity -- Normal but significant conditions.
+ * Log message severity -- Notice: normal but significant conditions.
  */
 define('WATCHDOG_NOTICE', 5);
 
@@ -110,6 +111,11 @@ define('WATCHDOG_INFO', 6);
  * Log message severity -- Debug-level messages.
  */
 define('WATCHDOG_DEBUG', 7);
+
+/**
+ * Log message severity -- Deprecated function/feature notices.
+ */
+define('WATCHDOG_DEPRECATED', 8);
 
 /**
  * @} End of "defgroup logging_severity_levels".
@@ -249,9 +255,25 @@ define('PASS_THROUGH', -1);
  */
 define('BACKDROP_PHP_FUNCTION_PATTERN', '[a-zA-Z_\x7f-\xff][a-zA-Z0-9_\x7f-\xff]*');
 
+/**
+ * An RFC7231 Compliant date.
+ *
+ * http://tools.ietf.org/html/rfc7231#section-7.1.1.1
+ *
+ * Example: Sun, 06 Nov 1994 08:49:37 GMT
+ *
+ * This constant was introduced in PHP 7.0.19 and PHP 7.1.5 but needs to be
+ * defined by Backdrop for earlier PHP versions.
+ *
+ * @since 1.11.0
+ */
+if (!defined('DATE_RFC7231')) {
+  define('DATE_RFC7231', 'D, d M Y H:i:s \G\M\T');
+}
+
 // Exit early if running an incompatible PHP version to avoid fatal errors.
 if (version_compare(PHP_VERSION, BACKDROP_MINIMUM_PHP) < 0) {
-  print 'Your PHP installation is too old. Backdrop CMS requires at least PHP 5.3.2. See the <a href="http://backdropcms.org/guide/requirements">system requirements</a> page for more information.';
+  print 'Your PHP installation is too old. Backdrop CMS requires at least PHP ' . BACKDROP_MINIMUM_PHP . '. See the <a href="https://backdropcms.org/requirements">System Requirements</a> page for more information.';
   exit;
 }
 
@@ -267,17 +289,18 @@ if (version_compare(PHP_VERSION, BACKDROP_MINIMUM_PHP) < 0) {
  * static caches of that same data.
  *
  * Note that array_* functions do not work with ArrayAccess. Systems using
- * BackdropCacheArray should use this only internally. If providing API functions
- * that return the full array, this can be cached separately or returned
- * directly. However since BackdropCacheArray holds partial content by design, it
- * should be a normal PHP array or otherwise contain the full structure.
+ * BackdropCacheArray should use this only internally. If providing API
+ * functions that return the full array, this can be cached separately or
+ * returned directly. However since BackdropCacheArray holds partial content by
+ * design, it should be a normal PHP array or otherwise contain the full
+ * structure.
  *
  * Note also that due to limitations in PHP prior to 5.3.4, it is impossible to
  * write directly to the contents of nested arrays contained in this object.
  * Only writes to the top-level array elements are possible. So if you
  * previously had set $object['foo'] = array(1, 2, 'bar' => 'baz'), but later
- * want to change the value of 'bar' from 'baz' to 'foobar', you cannot do so
- * a targeted write like $object['foo']['bar'] = 'foobar'. Instead, you must
+ * want to change the value of 'bar' from 'baz' to 'foobar', you cannot do a
+ * targeted write like $object['foo']['bar'] = 'foobar'. Instead, you must
  * overwrite the entire top-level 'foo' array with the entire set of new
  * values: $object['foo'] = array(1, 2, 'bar' => 'foobar'). Due to this same
  * limitation, attempts to create references to any contained data, nested or
@@ -335,9 +358,9 @@ abstract class BackdropCacheArray implements ArrayAccess {
   /**
    * Constructs a BackdropCacheArray object.
    *
-   * @param $cid
+   * @param string $cid
    *   The cid for the array being cached.
-   * @param $bin
+   * @param string $bin
    *   The bin to cache the array.
    */
   public function __construct($cid, $bin) {
@@ -345,13 +368,14 @@ abstract class BackdropCacheArray implements ArrayAccess {
     $this->bin = $bin;
 
     if ($cached = cache($bin)->get($this->cid)) {
-     $this->storage = $cached->data;
+      $this->storage = $cached->data;
     }
   }
 
   /**
    * Implements ArrayAccess::offsetExists().
    */
+  #[\ReturnTypeWillChange]
   public function offsetExists($offset) {
     return $this->offsetGet($offset) !== NULL;
   }
@@ -359,6 +383,7 @@ abstract class BackdropCacheArray implements ArrayAccess {
   /**
    * Implements ArrayAccess::offsetGet().
    */
+  #[\ReturnTypeWillChange]
   public function offsetGet($offset) {
     if (isset($this->storage[$offset]) || array_key_exists($offset, $this->storage)) {
       return $this->storage[$offset];
@@ -371,6 +396,7 @@ abstract class BackdropCacheArray implements ArrayAccess {
   /**
    * Implements ArrayAccess::offsetSet().
    */
+  #[\ReturnTypeWillChange]
   public function offsetSet($offset, $value) {
     $this->storage[$offset] = $value;
   }
@@ -378,6 +404,7 @@ abstract class BackdropCacheArray implements ArrayAccess {
   /**
    * Implements ArrayAccess::offsetUnset().
    */
+  #[\ReturnTypeWillChange]
   public function offsetUnset($offset) {
     unset($this->storage[$offset]);
   }
@@ -390,12 +417,12 @@ abstract class BackdropCacheArray implements ArrayAccess {
    * method. This allows items to be cached for the duration of a request,
    * without necessarily writing back to the persistent cache at the end.
    *
-   * @param $offset
+   * @param string $offset
    *   The array offset that was requested.
-   * @param $persist
+   * @param bool $persist
    *   Optional boolean to specify whether the offset should be persisted or
    *   not, defaults to TRUE. When called with $persist = FALSE the offset will
-   *   be unflagged so that it will not be written at the end of the request.
+   *   be un-flagged so that it will not be written at the end of the request.
    */
   protected function persist($offset, $persist = TRUE) {
     $this->keysToPersist[$offset] = $persist;
@@ -408,10 +435,10 @@ abstract class BackdropCacheArray implements ArrayAccess {
    * miss. This method allows classes implementing the interface to look up
    * the actual value and allow it to be cached.
    *
-   * @param $offset
+   * @param string $offset
    *   The offset that was requested.
    *
-   * @return
+   * @return string|null
    *   The value of the offset, or NULL if no value was found.
    */
   abstract protected function resolveCacheMiss($offset);
@@ -419,12 +446,12 @@ abstract class BackdropCacheArray implements ArrayAccess {
   /**
    * Writes a value to the persistent cache immediately.
    *
-   * @param $data
+   * @param array $data
    *   The data to write to the persistent cache.
-   * @param $lock
+   * @param bool $lock
    *   Whether to acquire a lock before writing to cache.
    */
-  protected function set($data, $lock = TRUE) {
+  protected function set($data, $lock = TRUE) { // phpcs:ignore
     // Lock cache writes to help avoid stampedes.
     // To implement locking for cache misses, override __construct().
     $lock_name = $this->cid . ':' . $this->bin;
@@ -443,6 +470,9 @@ abstract class BackdropCacheArray implements ArrayAccess {
    * Destructs the BackdropCacheArray object.
    */
   public function __destruct() {
+    if (!is_array($this->keysToPersist)) {
+      throw new UnexpectedValueException();
+    }
     $data = array();
     foreach ($this->keysToPersist as $offset => $persist) {
       if ($persist) {
@@ -461,7 +491,7 @@ abstract class BackdropCacheArray implements ArrayAccess {
  * If you start and stop the same timer multiple times, the measured intervals
  * will be accumulated.
  *
- * @param $name
+ * @param string $name
  *   The name of the timer.
  */
 function timer_start($name) {
@@ -474,10 +504,10 @@ function timer_start($name) {
 /**
  * Reads the current timer value without stopping the timer.
  *
- * @param $name
+ * @param string $name
  *   The name of the timer.
  *
- * @return
+ * @return int
  *   The current timer value in ms.
  */
 function timer_read($name) {
@@ -498,10 +528,10 @@ function timer_read($name) {
 /**
  * Stops the timer with the specified name.
  *
- * @param $name
+ * @param string $name
  *   The name of the timer.
  *
- * @return
+ * @return array
  *   A timer array. The array contains the number of times the timer has been
  *   started and stopped (count) and the accumulated timer value in ms (time).
  */
@@ -540,7 +570,7 @@ function timer_stop($name) {
  *   Force a full search for matching directories even if one had been
  *   found previously. Defaults to FALSE.
  *
- * @return
+ * @return string
  *   The path of the matching directory.
  *
  * @see settings.php
@@ -568,13 +598,16 @@ function conf_path($require_settings = TRUE, $reset = FALSE) {
  * which directory should be used based on the hostname. If not using multisite,
  * the path returned will be a single period (indicating the current directory).
  *
- * @param $http_host
+ * @param string $http_host
  *   The hostname and optional port number, e.g. "www.example.com" or
  *   "www.example.com:8080".
- * @param $script_name
+ * @param string $script_name
  *   The part of the url following the hostname, including the leading slash.
+ * @param bool $require_settings
+ *   Only configuration directories with an existing settings.php file
+ *   will be recognized. Defaults to TRUE.
  *
- * @return
+ * @return string
  *   The relative path of the matching configuration directory.
  *
  * @see conf_path()
@@ -590,6 +623,7 @@ function find_conf_path($http_host, $script_name, $require_settings = TRUE) {
 
   if ($sites) {
     $uri = explode('/', $script_name);
+    $uri[0] = ($uri[0] == '.') ? '' : $uri[0];
     $server = explode('.', implode('.', array_reverse(explode(':', rtrim($http_host, '.')))));
     for ($i = count($uri) - 1; $i > 0; $i--) {
       for ($j = count($server); $j > 0; $j--) {
@@ -631,7 +665,7 @@ function find_conf_path($http_host, $script_name, $require_settings = TRUE) {
  * anything but the standard localhost value ('127.0.0.1'), the command line
  * script should pass in the desired value via the 'REMOTE_ADDR' key.
  *
- * @param $variables
+ * @param array $variables
  *   (optional) An associative array of variables within $_SERVER that should
  *   be replaced. If the special element 'url' is provided in this array, it
  *   will be used to populate some of the server defaults; it should be set to
@@ -642,7 +676,7 @@ function find_conf_path($http_host, $script_name, $require_settings = TRUE) {
  * @see request_uri()
  * @see ip_address()
  */
-function backdrop_override_server_variables($variables = array()) {
+function backdrop_override_server_variables(array $variables = array()) {
   // Allow the provided URL to override any existing values in $_SERVER.
   if (isset($variables['url'])) {
     $url = parse_url($variables['url']);
@@ -705,13 +739,11 @@ function backdrop_environment_initialize() {
   // e.g. "&" or "%" that have special meanings in URLs and must be encoded.
   $_GET['q'] = request_path();
 
-  // Enforce E_STRICT, but allow users to set levels not part of E_STRICT.
-  error_reporting(E_STRICT | E_ALL | error_reporting());
+  error_reporting(E_ALL);
 
   // Override PHP settings required for Backdrop to work properly.
   // settings.php contains more runtime settings.
   // The .htaccess file contains settings that cannot be changed at runtime.
-
   // Don't escape quotes when reading files from the database, disk, etc.
   ini_set('magic_quotes_runtime', '0');
   // Use session cookies, not transparent sessions that puts the session id in
@@ -728,13 +760,23 @@ function backdrop_environment_initialize() {
   // Set sane locale settings, to ensure consistent string, dates, times and
   // numbers handling.
   setlocale(LC_ALL, 'C');
+
+  // PHP's built-in phar:// stream wrapper is not sufficiently secure. Remove it
+  // from use unless running through CLI, for tools such as drush or other
+  // shell scripts.
+  if (!backdrop_is_cli() && in_array('phar', stream_get_wrappers())) {
+    stream_wrapper_unregister('phar');
+  }
 }
 
 /**
  * Validates that a hostname (for example $_SERVER['HTTP_HOST']) is safe.
  *
- * @return
- *  TRUE if only containing valid characters, or FALSE otherwise.
+ * @param string $host
+ *   The host name to validate.
+ *
+ * @return bool
+ *   TRUE only if containing valid characters; FALSE otherwise.
  */
 function backdrop_valid_http_host($host) {
   // Limit the length of the host name to 1000 bytes to prevent DoS attacks with
@@ -748,41 +790,149 @@ function backdrop_valid_http_host($host) {
 }
 
 /**
+ * Checks whether an HTTPS request is being served.
+ *
+ * @return bool
+ *   TRUE if the request is HTTPS, FALSE otherwise.
+ */
+function backdrop_is_https() {
+  return isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) == 'on';
+}
+
+/**
+ * Checks whether Backdrop is running under Apache.
+ *
+ * @return bool
+ *   TRUE if Backdrop is running under Apache, FALSE if not.
+ *
+ * @since 1.9.2
+ */
+function backdrop_is_apache() {
+  // Test runs always emulate Apache.
+  $test_info = &$GLOBALS['backdrop_test_info'];
+  if (!empty($test_info['in_child_site'])) {
+    return TRUE;
+  }
+
+  $server_software = $_SERVER['SERVER_SOFTWARE'];
+  return (bool) preg_match("/apache/i", $server_software);
+}
+
+/**
+ * Checks whether Backdrop is running under Nginx.
+ *
+ * @return bool
+ *   TRUE if Backdrop is running under Nginx, FALSE if not.
+ *
+ * @since 1.9.2
+ */
+function backdrop_is_nginx() {
+  $server_software = $_SERVER['SERVER_SOFTWARE'];
+  return (bool) preg_match("/nginx/i", $server_software);
+}
+
+/**
+ * Checks whether Backdrop is running under LiteSpeed.
+ *
+ * @return bool
+ *   TRUE if Backdrop is running under LiteSpeed, FALSE if not.
+ *
+ * @since 1.21.4
+ */
+function backdrop_is_litespeed() {
+  $server_software = $_SERVER['SERVER_SOFTWARE'];
+  return (bool) preg_match("/litespeed/i", $server_software);
+}
+
+/**
  * Sets the base URL, cookie domain, and session name from configuration.
  */
 function backdrop_settings_initialize() {
   global $base_url, $base_path, $base_root;
 
   // Export these settings.php variables to the global namespace.
-  global $databases, $cookie_domain, $conf, $settings, $installed_profile, $is_https, $base_secure_url, $base_insecure_url, $config_directories;
+  global $databases, $cookie_domain, $conf, $settings, $installed_profile, $is_https, $base_secure_url, $base_insecure_url, $config_directories, $config;
   $conf = array();
-  $settings = array();
 
   $conf_path = conf_path();
   if (file_exists($conf_path . '/settings.php')) {
     require_once $conf_path . '/settings.php';
   }
   if (!empty($settings['backdrop_drupal_compatibility'])) {
-    require_once './core/includes/drupal.inc';
+    require_once BACKDROP_ROOT . '/core/includes/drupal.inc';
   }
 
-  // Convert simplified database settings into the full databases array.
-  if (!empty($database) && $database !== 'mysql://user:pass@localhost/database_name') {
-    $database_parts = parse_url($database);
-    $databases['default']['default'] = array(
-      'driver' => $database_parts['scheme'],
-      'database' => substr($database_parts['path'], 1), // Remove leading slash.
-      'username' => isset($database_parts['user']) ? $database_parts['user'] : '',
-      'password' => isset($database_parts['pass']) ? $database_parts['pass'] : '',
-      'host' => $database_parts['host'],
-      'port' => isset($database_parts['port']) ? $database_parts['port'] : NULL,
-      'prefix' => !empty($database_prefix) ? $database_prefix : '',
+  $database_is_set = FALSE;
+
+  // The database connection can be specified in multiple formats:
+  // - $database as a string.
+  // - $database as an simple array.
+  // - $databases as a multi-level nested array.
+  // Both the simplified syntaxes are converted to the larger $databases array.
+  // First option: the database connection settings have been provided in the
+  // form of a connection string. This was the default format in versions prior
+  // to Backdrop 1.30.0:
+  if (!empty($database) && is_string($database)) {
+    $default_db_string = 'mysql://user:pass@localhost/database_name';
+    if ($database !== $default_db_string) {
+      // Convert simplified database settings string into the full databases
+      // array.
+      $database_parts = parse_url($database);
+      if (!$database_parts) {
+        trigger_error('The database setting could not be parsed. Please check the $database setting in settings.php.', E_USER_ERROR);
+      }
+      $databases['default']['default'] = array(
+        'driver' => $database_parts['scheme'],
+        // Remove leading slash.
+        'database' => rawurldecode(substr($database_parts['path'], 1)),
+        'username' => isset($database_parts['user']) ? rawurldecode($database_parts['user']) : '',
+        'password' => isset($database_parts['pass']) ? rawurldecode($database_parts['pass']) : '',
+        'host' => $database_parts['host'],
+        'port' => isset($database_parts['port']) ? $database_parts['port'] : NULL,
+        'prefix' => !empty($database_prefix) ? $database_prefix : '',
+      );
+      $database_is_set = TRUE;
+    }
+  }
+  // Second option: the database connection settings is a simplified array. This
+  // is the default format in version 1.30.0 and higher.
+  if (!empty($database) && is_array($database)) {
+    $default_db_array = array(
+      'database' => 'database_name',
+      'username' => 'user',
+      'password' => 'pass',
+      'host' => 'localhost',
     );
+    if ($database != $default_db_array) {
+      // Specify default values.
+      $database += array(
+        'prefix' => '',
+        'driver' => 'mysql',
+        'port' => NULL,
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_general_ci',
+      );
+      $databases['default']['default'] = $database;
+      $database_is_set = TRUE;
+    }
   }
 
-  $is_https = isset($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) == 'on';
+  // If using one of the simplified syntaxes, verify all the necessary parts
+  // are specified.
+  if ($database_is_set) {
+    // Check that all required parts are included.
+    $required_parts = array('driver', 'database', 'username', 'host');
+    foreach ($required_parts as $key) {
+      if (!$databases['default']['default'][$key]) {
+        $missing_field = ($key == 'database') ? 'name' : $key;
+        trigger_error('Could not find a value for the database "' . $missing_field . '" setting. Please check the $database setting in settings.php.', E_USER_ERROR);
+      }
+    }
+  }
 
-  // Load settings specified by the server, if present
+  $is_https = backdrop_is_https();
+
+  // Load settings specified by the server, if present.
   if (isset($_SERVER['BACKDROP_SETTINGS'])) {
     $server_settings = @json_decode($_SERVER['BACKDROP_SETTINGS'], TRUE);
     if (!is_array($server_settings)) {
@@ -792,7 +942,7 @@ function backdrop_settings_initialize() {
       foreach ($server_settings as $key => $value) {
         // One level of depth should be enough for $settings and $databases.
         if ($key == 'settings') {
-          foreach($value as $settings_key => $settings_value) {
+          foreach ($value as $settings_key => $settings_value) {
             $settings[$settings_key] = $settings_value;
           }
         }
@@ -809,6 +959,13 @@ function backdrop_settings_initialize() {
         }
       }
     }
+  }
+
+  // Pull in the database charset option if specified. This removes the need
+  // to use the long-form array and allows enabling ut8mb4 support even if the
+  // server provided options via $_SERVER['BACKDROP_SETTINGS'].
+  if (isset($database_charset) && isset($databases['default']['default']) && !isset($databases['default']['default']['charset'])) {
+    $databases['default']['default']['charset'] = $database_charset;
   }
 
   if (isset($base_url)) {
@@ -855,11 +1012,12 @@ function backdrop_settings_initialize() {
     $session_name = $cookie_domain;
   }
   else {
+    $cookie_domain = '';
     // Otherwise use $base_url as session name, without the protocol
     // to use the same session identifiers across HTTP and HTTPS.
     list( , $session_name) = explode('://', $base_url, 2);
-    // HTTP_HOST can be modified by a visitor, but we already sanitized it
-    // in backdrop_settings_initialize().
+    // HTTP_HOST can be modified by a visitor, but we already sanitized it in
+    // backdrop_environment_initialize().
     if (!empty($_SERVER['HTTP_HOST'])) {
       $cookie_domain = $_SERVER['HTTP_HOST'];
       // Strip leading periods, www., and port numbers from cookie domain.
@@ -872,7 +1030,8 @@ function backdrop_settings_initialize() {
     }
   }
   // Per RFC 2109, cookie domains must contain at least one dot other than the
-  // first. For hosts such as 'localhost' or IP Addresses we don't set a cookie domain.
+  // first. For hosts such as 'localhost' or IP Addresses we don't set a cookie
+  // domain.
   if (count(explode('.', $cookie_domain)) > 2 && !is_numeric(str_replace('.', '', $cookie_domain))) {
     ini_set('session.cookie_domain', $cookie_domain);
   }
@@ -907,15 +1066,15 @@ function backdrop_settings_initialize() {
  * Calling backdrop_get_filename('module', 'foo') will give you one of
  * the above, depending on where the module is located.
  *
- * @param $type
+ * @param string $type
  *   The type of the item (theme, layout, theme_engine, module, profile).
- * @param $name
+ * @param string $name
  *   The name of the item for which the filename is requested.
- * @param $filename
+ * @param string|null $filename
  *   The filename of the item if it is to be set explicitly rather
  *   than by consulting the database.
  *
- * @return
+ * @return string|null|false
  *   The filename of the requested item or NULL if the item is not found.
  */
 function backdrop_get_filename($type, $name, $filename = NULL) {
@@ -925,8 +1084,19 @@ function backdrop_get_filename($type, $name, $filename = NULL) {
 
   // Profiles are a special case: they have a fixed location and naming.
   if ($type == 'profile') {
-    $profile_filename = "profiles/$name/$name.profile";
-    $files[$type][$name] = file_exists($profile_filename) ? $profile_filename : FALSE;
+    $profile_filenames = array(
+      "profiles/$name/$name.profile",
+      "core/profiles/$name/$name.profile",
+    );
+    foreach ($profile_filenames as $profile_filename) {
+      if (file_exists($profile_filename)) {
+        $files[$type][$name] = $profile_filename;
+        break;
+      }
+      else {
+        $files[$type][$name] = FALSE;
+      }
+    }
   }
   if (!isset($files[$type])) {
     $files[$type] = array();
@@ -945,15 +1115,18 @@ function backdrop_get_filename($type, $name, $filename = NULL) {
   else {
     try {
       // Layouts we use the existing registry rather than the system table.
-      if ($type === 'layout' && function_exists('layout_get_layout_info')) {
-        $layout_info = layout_get_layout_info($name);
+      if ($type === 'layout' && function_exists('layout_get_layout_template_info')) {
+        $layout_info = layout_get_layout_template_info($name);
         if ($layout_info) {
           $files[$type][$name] = $layout_info['path'] . '/' . $layout_info['name'] . '.info';
         }
       }
       // Modules, themes, and profiles pull from the system table.
       elseif (function_exists('db_query')) {
-        $file = db_query("SELECT filename FROM {system} WHERE name = :name AND type = :type", array(':name' => $name, ':type' => $type))->fetchField();
+        $file = db_query("SELECT filename FROM {system} WHERE name = :name AND type = :type", array(
+          ':name' => $name,
+          ':type' => $type,
+        ))->fetchField();
         if ($file && file_exists(BACKDROP_ROOT . '/' . $file)) {
           $files[$type][$name] = $file;
         }
@@ -1011,6 +1184,8 @@ function backdrop_get_filename($type, $name, $filename = NULL) {
  * @deprecated since 1.0
  */
 function variable_initialize($conf = array()) {
+  // watchdog_deprecated_function() is not called here even though this function
+  // is deprecated because this function is *always* called during bootstrap.
   // NOTE: caching the variables improves performance by 20% when serving
   // cached pages.
   if ($cached = cache('bootstrap')->get('variables')) {
@@ -1023,6 +1198,7 @@ function variable_initialize($conf = array()) {
       // Another request is building the variable cache.
       // Wait, then re-run this function.
       lock_wait($name);
+      // phpcs:ignore
       return variable_initialize($conf);
     }
     else {
@@ -1077,12 +1253,12 @@ function settings_get($name, $default = NULL) {
  * environment-specific setting (such as the last time cron ran), use
  * state_get() instead.
  *
- * @param $name
+ * @param string $name
  *   The name of the variable to return.
- * @param $default
+ * @param mixed $default
  *   The default value to use if this variable has never been set.
  *
- * @return
+ * @return mixed
  *   The value of the variable. Unserialization is taken care of as necessary.
  *
  * @see variable_del()
@@ -1095,6 +1271,7 @@ function settings_get($name, $default = NULL) {
 function variable_get($name, $default = NULL) {
   global $conf;
 
+  watchdog_deprecated_function('bootstrap', __FUNCTION__);
   return isset($conf[$name]) ? $conf[$name] : $default;
 }
 
@@ -1112,9 +1289,9 @@ function variable_get($name, $default = NULL) {
  * environment-specific setting (such as the last time cron ran), use
  * state_set() instead.
  *
- * @param $name
+ * @param string $name
  *   The name of the variable to set.
- * @param $value
+ * @param mixed $value
  *   The value to set. This can be any PHP data type; these functions take care
  *   of serialization as necessary.
  *
@@ -1127,6 +1304,8 @@ function variable_get($name, $default = NULL) {
  */
 function variable_set($name, $value) {
   global $conf;
+
+  watchdog_deprecated_function('bootstrap', __FUNCTION__);
 
   db_merge('variable')->key(array('name' => $name))->fields(array('value' => serialize($value)))->execute();
 
@@ -1142,7 +1321,7 @@ function variable_set($name, $value) {
  * collation used. To avoid problems, always use lower case for persistent
  * variable names.
  *
- * @param $name
+ * @param string $name
  *   The name of the variable to undefine.
  *
  * @see variable_get()
@@ -1152,6 +1331,8 @@ function variable_set($name, $value) {
  */
 function variable_del($name) {
   global $conf;
+
+  watchdog_deprecated_function('bootstrap', __FUNCTION__);
 
   db_delete('variable')
     ->condition('name', $name)
@@ -1205,12 +1386,12 @@ function state_initialize() {
  * collation used. To avoid problems, always use lower case for persistent
  * state names.
  *
- * @param $name
+ * @param string $name
  *   The name of the state to return.
- * @param $default
+ * @param mixed $default
  *   The default value to use if this state has never been set.
  *
- * @return
+ * @return mixed
  *   The value of the state. Complex data types such as objects and arrays are
  *   unserialized when returned.
  *
@@ -1228,9 +1409,9 @@ function state_get($name, $default = NULL) {
 /**
  * Sets a persistent state value.
  *
- * @param $name
+ * @param string $name
  *   The name of the state to set.
- * @param $value
+ * @param mixed $value
  *   The value to set. Complex data types will be serialized upon storage.
  *
  * @see state_get()
@@ -1251,7 +1432,7 @@ function state_set($name, $value) {
 /**
  * Unsets a persistent state value.
  *
- * @param $name
+ * @param string $name
  *   The name of the state to delete.
  *
  * @see state_get()
@@ -1266,6 +1447,34 @@ function state_del($name) {
   if ($states && array_key_exists($name, $states)) {
     unset($states[$name]);
   }
+}
+
+/**
+ * Get the backup directory (if any) for this site.
+ *
+ * This setting comes from $settings['backup_directory'] in settings.php. Note
+ * that settings_get('backup_directory') should not be called directly, instead
+ * use this function, which takes into account test runs.
+ *
+ * This function is in bootstrap.inc so that it can be used without loading
+ * backup.inc if backups are not enabled.
+ *
+ * @return string|null
+ *   The path to the backup directory, relative or absolute, depending on the
+ *   site configuration, or NULL if no backup directory is specified.
+ *
+ * @since 1.30.0 Function added.
+ */
+function backup_get_backup_directory() {
+  $backup_directory = settings_get('backup_directory', '');
+
+  // For test runs, specify a specific sub-directory.
+  // See BackdropWebTestBase::setUp().
+  if ($test_prefix = backdrop_valid_test_ua()) {
+    $backup_directory = conf_path() . '/files/simpletest/' . substr($test_prefix, 10) . '/backups';
+  }
+
+  return $backup_directory;
 }
 
 /**
@@ -1286,7 +1495,7 @@ function state_del($name) {
  *   FALSE, only cache entries within the maximum cache lifetime will be
  *   returned.
  *
- * @return
+ * @return stdClass|null
  *   The cache object, if the page was found in the cache, NULL otherwise.
  */
 function backdrop_page_get_cache($check_only = FALSE, $return_stale = FALSE) {
@@ -1326,10 +1535,10 @@ function backdrop_page_get_cache($check_only = FALSE, $return_stale = FALSE) {
 /**
  * Determines the cacheability of the current page.
  *
- * @param $allow_caching
+ * @param bool|null $allow_caching
  *   Set to FALSE if you want to prevent this page from being cached.
  *
- * @return
+ * @return bool
  *   TRUE if the current page can be cached, FALSE otherwise.
  */
 function backdrop_page_is_cacheable($allow_caching = NULL) {
@@ -1344,7 +1553,7 @@ function backdrop_page_is_cacheable($allow_caching = NULL) {
 /**
  * Invokes a bootstrap hook in all bootstrap modules that implement it.
  *
- * @param $hook
+ * @param string $hook
  *   The name of the bootstrap hook to invoke.
  *
  * @see bootstrap_hooks()
@@ -1368,12 +1577,12 @@ function bootstrap_invoke_all($hook) {
  *
  * This prevents including a theme, engine, module, etc., more than once.
  *
- * @param $type
+ * @param string $type
  *   The type of item to load (i.e. theme, theme_engine, module).
- * @param $name
+ * @param string $name
  *   The name of the item to load.
  *
- * @return
+ * @return bool
  *   TRUE if the item is loaded or has already been loaded.
  */
 function backdrop_load($type, $name) {
@@ -1403,13 +1612,13 @@ function backdrop_load($type, $name) {
  * Note: When sending a Content-Type header, always include a 'charset' type,
  * too. This is necessary to avoid security bugs (e.g. UTF-7 XSS).
  *
- * @param $name
+ * @param string $name
  *   The HTTP header name, or the special 'Status' header name.
- * @param $value
+ * @param string|false $value
  *   The HTTP header value; if equal to FALSE, the specified header is unset.
  *   If $name is 'Status', this is expected to be a status code followed by a
  *   reason phrase, e.g. "404 Not Found".
- * @param $append
+ * @param bool $append
  *   Whether to append the value to an existing header or to replace it.
  */
 function backdrop_add_http_header($name, $value, $append = FALSE) {
@@ -1436,13 +1645,14 @@ function backdrop_add_http_header($name, $value, $append = FALSE) {
 /**
  * Gets the HTTP response headers for the current page.
  *
- * @param $name
+ * @param string|null $name
  *   An HTTP header name. If omitted, all headers are returned as name/value
  *   pairs. If an array value is FALSE, the header has been unset.
  *
- * @return
- *   A string containing the header value, or FALSE if the header has been set,
- *   or NULL if the header has not been set.
+ * @return array|string|false|null
+ *   A string containing the header value. If name is omitted, all headers are
+ *   returned as name/value pairs. NULL if the header name has not been set, or
+ *   FALSE if the header has been set.
  */
 function backdrop_get_http_header($name = NULL) {
   $headers = &backdrop_static('backdrop_http_headers', array());
@@ -1460,14 +1670,21 @@ function backdrop_get_http_header($name = NULL) {
  *
  * Header names are case-insensitive, but for maximum compatibility they should
  * follow "common form" (see RFC 2617, section 4.2).
+ *
+ * @param string|null $name
+ *   Optional. A header name with the preferred capitalization, e.g.
+ *   Cache-Control or Content-Type.
+ * @return string[]
+ *   The array of all current preferred header names. Keyed by a lower-case
+ *   string of each header name.
  */
 function _backdrop_set_preferred_header_name($name = NULL) {
   static $header_names = array();
 
-  if (!isset($name)) {
-    return $header_names;
+  if (isset($name)) {
+    $header_names[strtolower($name)] = $name;
   }
-  $header_names[strtolower($name)] = $name;
+  return $header_names;
 }
 
 /**
@@ -1482,7 +1699,7 @@ function _backdrop_set_preferred_header_name($name = NULL) {
  *   (optional) If TRUE and headers have already been sent, send only the
  *   specified headers.
  */
-function backdrop_send_headers($default_headers = array(), $only_default = FALSE) {
+function backdrop_send_headers(array $default_headers = array(), $only_default = FALSE) {
   // If we are in background mode, we are unable to send headers because the
   // request has already been delivered back to the client.
   if (backdrop_is_background()) {
@@ -1537,8 +1754,12 @@ function backdrop_send_headers($default_headers = array(), $only_default = FALSE
  * refers to the time of the request. If the user accesses Backdrop via a proxy
  * server, and the proxy already has a cached copy of the anonymous page with an
  * older Last-Modified date, the proxy may respond with 304 Not Modified, making
- * the client think that the anonymous and authenticated pageviews are
+ * the client think that the anonymous and authenticated page views are
  * identical.
+ *
+ * @return bool
+ *   TRUE if the headers were sent. FALSE if the headers have already been sent
+ *   and may not be sent again.
  *
  * @see backdrop_page_create_cache()
  * @see backdrop_page_save_cache()
@@ -1546,18 +1767,19 @@ function backdrop_send_headers($default_headers = array(), $only_default = FALSE
 function backdrop_page_header() {
   $headers_sent = &backdrop_static(__FUNCTION__, FALSE);
   if ($headers_sent) {
-    return TRUE;
+    return FALSE;
   }
   $headers_sent = TRUE;
 
   $default_headers = array(
-    'Expires' => 'Sun, 19 Nov 1978 05:00:00 GMT',
+    'Expires' => 'Fri, 16 Jan 2015 07:50:00 GMT',
     'Last-Modified' => gmdate(DATE_RFC1123, REQUEST_TIME),
-    'Cache-Control' => 'no-cache, must-revalidate, post-check=0, pre-check=0',
+    'Cache-Control' => 'no-cache, must-revalidate',
     'X-Content-Type-Options' => 'nosniff',
     'ETag' => '"' . REQUEST_TIME . '"',
   );
   backdrop_send_headers($default_headers);
+  return TRUE;
 }
 
 /**
@@ -1565,6 +1787,9 @@ function backdrop_page_header() {
  *
  * These headers allow the browser to deliver the page to the user without
  * waiting for PHP to finish execution.
+ *
+ * @param int $content_length
+ *   The size, in bytes, of the message body.
  */
 function backdrop_set_length_headers($content_length) {
   // Set the total content length.
@@ -1585,6 +1810,9 @@ function backdrop_set_length_headers($content_length) {
  * If the request is conditional (using If-Modified-Since and If-None-Match),
  * and the conditions match those currently in the cache, a 304 Not Modified
  * response is sent.
+ *
+ * @param stdClass $cache
+ *   A cache entry object to be used in the response.
  */
 function backdrop_serve_page_from_cache(stdClass $cache) {
   $page_content = $cache->data['body'];
@@ -1605,7 +1833,12 @@ function backdrop_serve_page_from_cache(stdClass $cache) {
     // remaining may not (see RFC 2616, section 10.3.5). Do not override
     // headers set in hook_boot().
     $name_lower = strtolower($name);
-    if (in_array($name_lower, array('content-location', 'expires', 'cache-control', 'vary')) && !isset($hook_boot_headers[$name_lower])) {
+    if (in_array($name_lower, array(
+      'content-location',
+      'expires',
+      'cache-control',
+      'vary',
+    )) && !isset($hook_boot_headers[$name_lower])) {
       backdrop_add_http_header($name, $value);
       unset($cache->data['headers'][$name]);
     }
@@ -1619,17 +1852,26 @@ function backdrop_serve_page_from_cache(stdClass $cache) {
   $max_age = !isset($_COOKIE[session_name()]) || isset($hook_boot_headers['vary']) ? config_get('system.core', 'page_cache_maximum_age') : 0;
   $default_headers['Cache-Control'] = 'public, max-age=' . $max_age;
 
-  // Entity tag should change if the output changes.
-  $etag = $cache->created . ($return_compressed ? '-gzip' : '');
+  // Entity tag should change if the output changes. Quotes are required per
+  // header specification:
+  // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag
+  $etag = '"' . $cache->created . ($return_compressed ? '-gzip' : '') . '"';
   header('Etag: ' . $etag);
 
   // See if the client has provided the required HTTP headers.
   $if_modified_since = isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) ? strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) : FALSE;
   $if_none_match = isset($_SERVER['HTTP_IF_NONE_MATCH']) ? stripslashes($_SERVER['HTTP_IF_NONE_MATCH']) : FALSE;
 
-  if ($if_modified_since && $if_none_match
-      && $if_none_match == $etag // etag must match
-      && $if_modified_since == $cache->created) {  // if-modified-since must match
+  // Handle an exact match based on Etag. The If-None-Match header takes full
+  // precedence over If-Modified-Since header.
+  if ($if_none_match == $etag) {
+    header($_SERVER['SERVER_PROTOCOL'] . ' 304 Not Modified');
+    backdrop_send_headers($default_headers);
+    return;
+  }
+
+  // Handle a loose match based on date only, if no Etag was provided.
+  if (!$if_none_match && $if_modified_since && $if_modified_since >= $cache->created) {
     header($_SERVER['SERVER_PROTOCOL'] . ' 304 Not Modified');
     backdrop_send_headers($default_headers);
     return;
@@ -1646,7 +1888,7 @@ function backdrop_serve_page_from_cache(stdClass $cache) {
   // by sending an Expires date in the past. HTTP/1.1 clients ignores the
   // Expires header if a Cache-Control: max-age= directive is specified (see RFC
   // 2616, section 14.9.3).
-  $default_headers['Expires'] = 'Sun, 19 Nov 1978 05:00:00 GMT';
+  $default_headers['Expires'] = 'Fri, 16 Jan 2015 07:50:00 GMT';
 
   backdrop_send_headers($default_headers);
 
@@ -1694,17 +1936,28 @@ function backdrop_serve_page_from_cache(stdClass $cache) {
 
 /**
  * Defines the critical hooks that force modules to always be loaded.
+ *
+ * @return array
  */
 function bootstrap_hooks() {
-  return array('boot', 'exit', 'watchdog', 'language_init', 'language_negotiation_info', 'language_negotiation_info_alter', 'language_types_info', 'language_types_info_alter');
+  return array(
+    'boot',
+    'exit',
+    'watchdog',
+    'language_init',
+    'language_negotiation_info',
+    'language_negotiation_info_alter',
+    'language_types_info',
+    'language_types_info_alter',
+  );
 }
 
 /**
  * Unserializes and appends elements from a serialized string.
  *
- * @param $obj
+ * @param object $obj
  *   The object to which the elements are appended.
- * @param $field
+ * @param string $field
  *   The attribute of $obj whose value should be unserialized.
  */
 function backdrop_unpack($obj, $field = 'data') {
@@ -1746,7 +1999,7 @@ function backdrop_unpack($obj, $field = 'data') {
  * @code
  * $text = t("@name's blog", array('@name' => user_format_name($account)));
  * @endcode
- * Basically, you can put variables like @name into your string, and t() will
+ * Basically, you can put variables like "@name" into your string, and t() will
  * substitute their sanitized values at translation time. (See the
  * Localization API pages referenced above and the documentation of
  * format_string() for details about how to define variables in your string.)
@@ -1758,9 +2011,26 @@ function backdrop_unpack($obj, $field = 'data') {
  * available to code that needs localization. See st() and get_t() for
  * alternatives.
  *
- * @param $string
+ * @section sec_context String context
+ * Matching source strings are normally only translated once, and the same
+ * translation is used everywhere that has a matching string. However, in some
+ * cases, a certain English source string needs to have multiple translations.
+ * One example of this is the string "May", which could be used as either a
+ * full month name or a 3-letter abbreviated month. In other languages where
+ * the month name for May has more than 3 letters, you would need to provide
+ * two different translations (one for the full name and one abbreviated), and
+ * the correct form would need to be chosen, depending on how "May" is being
+ * used. To facilitate this, the "May" string should be provided with two
+ * different contexts in the $options parameter when calling t(). For example:
+ * @code
+ * t('May', array(), array('context' => 'Long month name')
+ * t('May', array(), array('context' => 'Abbreviated month name')
+ * @endcode
+ * See https://localize.drupal.org/node/2109 for more information.
+ *
+ * @param string $string
  *   A string containing the English string to translate.
- * @param $args
+ * @param array $args
  *   An associative array of replacements to make. Occurrences in $string of
  *   any key in $args are replaced with the corresponding value, after optional
  *   sanitization and formatting. The type of sanitization and formatting
@@ -1774,14 +2044,15 @@ function backdrop_unpack($obj, $field = 'data') {
  *     example, user-supplied text that has already been run through
  *     check_plain() previously, or is expected to contain some limited HTML
  *     tags and has already been run through filter_xss() previously).
- * @param $options
+ * @param array $options
  *   An associative array of additional options, with the following elements:
  *   - 'langcode' (defaults to the current language): The language code to
  *     translate to a language other than what is used to display the page.
- *   - 'context' (defaults to the empty context): The context the source string
- *     belongs to.
+ *   - 'context' (defaults to the empty context): A string giving the context
+ *     that the source string belongs to. See @ref sec_context above for more
+ *     information.
  *
- * @return
+ * @return string
  *   The translated string.
  *
  * @see st()
@@ -1792,7 +2063,8 @@ function backdrop_unpack($obj, $field = 'data') {
 function t($string, array $args = array(), array $options = array()) {
   global $language;
 
-  // Use the advanced backdrop_static() pattern, since this is called very often.
+  // Use the advanced backdrop_static() pattern, since this is called very
+  // often.
   static $backdrop_static_fast;
   if (!isset($backdrop_static_fast)) {
     $backdrop_static_fast['t'] = &backdrop_static(__FUNCTION__, array());
@@ -1855,9 +2127,9 @@ function t($string, array $args = array(), array $options = array()) {
  * directly, since it will translate the text (on non-English-only sites) in
  * addition to formatting it.
  *
- * @param $string
+ * @param string $string
  *   A string containing placeholders.
- * @param $args
+ * @param array $args
  *   An associative array of replacements to make. Occurrences in $string of
  *   any key in $args are replaced with the corresponding value, after optional
  *   sanitization and formatting. The type of sanitization and formatting
@@ -1872,13 +2144,16 @@ function t($string, array $args = array(), array $options = array()) {
  *     check_plain() previously, or is expected to contain some limited HTML
  *     tags and has already been run through filter_xss() previously).
  *
+ * @return string
+ *   The provided string with the replacements made from the $args array.
+ *
  * @see t()
  * @ingroup sanitization
  */
 function format_string($string, array $args = array()) {
   // Transform arguments before inserting them.
   foreach ($args as $key => $value) {
-    switch ($key[0]) {
+    switch (substr($key, 0, 1)) {
       case '@':
         // Escaped only.
         $args[$key] = check_plain($value);
@@ -1908,14 +2183,13 @@ function format_string($string, array $args = array()) {
  *
  * @return string
  *   An HTML safe version of $text. If $text is not valid UTF-8, an empty string
- *   is returned and, on PHP < 5.4, a warning may be issued depending on server
- *   configuration (see @link https://bugs.php.net/bug.php?id=47494 @endlink).
+ *   is returned.
  *
  * @see backdrop_validate_utf8()
  * @ingroup sanitization
  */
 function check_plain($text) {
-  return htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+  return htmlspecialchars((string) $text, ENT_QUOTES, 'UTF-8');
 }
 
 /**
@@ -1936,14 +2210,14 @@ function check_plain($text) {
  * The function does not return FALSE for strings containing character codes
  * above U+10FFFF, even though these are prohibited by RFC 3629.
  *
- * @param $text
+ * @param string $text
  *   The text to check.
  *
- * @return
+ * @return bool
  *   TRUE if the text is valid UTF-8, FALSE if not.
  */
 function backdrop_validate_utf8($text) {
-  if (strlen($text) == 0) {
+  if (strlen((string) $text) == 0) {
     return TRUE;
   }
   // With the PCRE_UTF8 modifier 'u', preg_match() fails silently on strings
@@ -1957,6 +2231,8 @@ function backdrop_validate_utf8($text) {
  *
  * Because $_SERVER['REQUEST_URI'] is only available on Apache, we generate an
  * equivalent using other environment variables.
+ *
+ * @return string
  */
 function request_uri() {
   if (isset($_SERVER['REQUEST_URI'])) {
@@ -1980,63 +2256,158 @@ function request_uri() {
 }
 
 /**
+ * Logs a deprecation warning.
+ *
+ * This is a wrapper function for watchdog() to record uses of deprecated
+ * functions in Backdrop modules. To prevent an explosion of WATCHDOG_DEPRECATED
+ * messages, only the first use of a function in a particular file:line will get
+ * a watchdog message.
+ *
+ * @param string $type
+ *   The category to which this message belongs.
+ * @param string $func
+ *   The function or method deprecated. Usually, __FUNCTION__ or __METHOD__.
+ * @param string|null $link
+ *   A link to associate with the message.
+ *
+ * @see watchdog()
+ */
+function watchdog_deprecated_function($type, $func, $link = NULL) {
+  static $deprecated_calls = array();
+
+  // Return early if not logging deprecation warnings.
+  if (!watchdog_severity_enabled(WATCHDOG_DEPRECATED)) {
+    return;
+  }
+
+  require_once BACKDROP_ROOT . '/core/includes/errors.inc';
+
+  // Get the caller of the deprecated function.
+  $trace = debug_backtrace();
+  array_shift($trace);
+  $caller = _backdrop_get_last_caller($trace);
+
+  $caller_sig = $caller['file'] . ':' . $caller['line'];
+  if (array_key_exists($caller_sig, $deprecated_calls)) {
+    return;
+  }
+  $deprecated_calls[$caller_sig] = TRUE;
+
+  // Call watchdog()
+  $message = 'The function @original_caller (@file:@line) called deprecated function @function(). It will be removed in the next major release of Backdrop.';
+  $variables = array(
+    '@function' => $func,
+    '@original_caller' => $caller['function'],
+    '@file' => basename($caller['file']),
+    '@line' => $caller['line'],
+  );
+  watchdog($type, $message, $variables, WATCHDOG_DEPRECATED, $link);
+}
+
+/**
  * Logs an exception.
  *
  * This is a wrapper function for watchdog() which automatically decodes an
  * exception.
  *
- * @param $type
+ * @param string $type
  *   The category to which this message belongs.
- * @param $exception
+ * @param Exception $exception
  *   The exception that is going to be logged.
- * @param $message
+ * @param string|null $message
  *   The message to store in the log. If empty, a text that contains all useful
  *   information about the passed-in exception is used.
- * @param $variables
+ * @param array|null $variables
  *   Array of variables to replace in the message on display. Defaults to the
  *   return value of _backdrop_decode_exception().
- * @param $severity
+ * @param int $severity
  *   The severity of the message, as per RFC 3164.
- * @param $link
+ * @param string|null $link
  *   A link to associate with the message.
  *
  * @see watchdog()
  * @see _backdrop_decode_exception()
  */
-function watchdog_exception($type, Exception $exception, $message = NULL, $variables = array(), $severity = WATCHDOG_ERROR, $link = NULL) {
+function watchdog_exception($type, Exception $exception, $message = NULL, ?array $variables = array(), $severity = WATCHDOG_ERROR, $link = NULL) {
 
-   // Use a default value if $message is not set.
-   if (empty($message)) {
-     // The exception message is run through check_plain() by _backdrop_decode_exception().
-     $message = '%type: !message in %function (line %line of %file).';
-   }
-   // $variables must be an array so that we can add the exception information.
-   if (!is_array($variables)) {
-     $variables = array();
-   }
+  // Return early if not logging this severity level.
+  if (!watchdog_severity_enabled($severity)) {
+    return;
+  }
 
-   require_once BACKDROP_ROOT . '/core/includes/errors.inc';
-   $variables += _backdrop_decode_exception($exception);
-   watchdog($type, $message, $variables, $severity, $link);
+  // Use a default value if $message is not set.
+  if (empty($message)) {
+    // The exception message is run through check_plain() by
+    // _backdrop_decode_exception().
+    $message = '%type: !message in %function (line %line of %file).';
+  }
+  // $variables must be an array so that we can add the exception information.
+  if (!is_array($variables)) {
+    $variables = array();
+  }
+
+  require_once BACKDROP_ROOT . '/core/includes/errors.inc';
+  $variables += _backdrop_decode_exception($exception);
+  watchdog($type, $message, $variables, $severity, $link);
+}
+
+/**
+ * Check if logging is enabled for a given severity level.
+ *
+ * @param int $severity
+ *   One of the WATCHDOG_* severity constants.
+ *
+ * @return bool
+ *   TRUE if enabled, FALSE otherwise.
+ *
+ * @since 1.5.0
+ *
+ * @see watchdog_severity_levels()
+ */
+function watchdog_severity_enabled($severity = WATCHDOG_NOTICE) {
+  try {
+    $enabled_severity_levels = function_exists('config') ? config('system.core')->get('watchdog_enabled_severity_levels') : array();
+  }
+  catch (Exception $e) {
+    $enabled_severity_levels = array();
+  }
+
+  // This may be called before system.core, such as when running update.php or
+  // the initial installation. As such we provide the defaults if needed.
+  if (!isset($enabled_severity_levels)) {
+    // See watchdog_severity_levels() for possible values.
+    $enabled_severity_levels = array(
+      WATCHDOG_EMERGENCY,
+      WATCHDOG_ALERT,
+      WATCHDOG_CRITICAL,
+      WATCHDOG_ERROR,
+      WATCHDOG_WARNING,
+      WATCHDOG_NOTICE,
+      WATCHDOG_INFO,
+    );
+  }
+
+  // Return TRUE if the severity level is enabled.
+  return in_array($severity, $enabled_severity_levels);
 }
 
 /**
  * Logs a system message.
  *
- * @param $type
+ * @param string $type
  *   The category to which this message belongs. Can be any string, but the
  *   general practice is to use the name of the module calling watchdog().
- * @param $message
+ * @param string $message
  *   The message to store in the log. Keep $message translatable
  *   by not concatenating dynamic values into it! Variables in the
  *   message should be added by using placeholder strings alongside
  *   the variables argument to declare the value of the placeholders.
  *   See t() for documentation on how $message and $variables interact.
- * @param $variables
+ * @param array|null $variables
  *   Array of variables to replace in the message on display or
  *   NULL if message is already translated or not possible to
  *   translate.
- * @param $severity
+ * @param int $severity
  *   The severity of the message; one of the following values as defined in
  *   @link http://www.faqs.org/rfcs/rfc3164.html RFC 3164: @endlink
  *   - WATCHDOG_EMERGENCY: Emergency, system is unusable.
@@ -2047,26 +2418,34 @@ function watchdog_exception($type, Exception $exception, $message = NULL, $varia
  *   - WATCHDOG_NOTICE: (default) Normal but significant conditions.
  *   - WATCHDOG_INFO: Informational messages.
  *   - WATCHDOG_DEBUG: Debug-level messages.
- * @param $link
+ *   - WATCHDOG_DEPRECATED: Use of deprecated functions or features.
+ * @param string|null $link
  *   A link to associate with the message.
  *
  * @see watchdog_severity_levels()
  * @see hook_watchdog()
  */
-function watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL) {
+function watchdog($type, $message, ?array $variables = array(), $severity = WATCHDOG_NOTICE, $link = NULL) {
   global $user, $base_root;
 
   static $in_error_state = FALSE;
 
-  // It is possible that the error handling will itself trigger an error. In that case, we could
-  // end up in an infinite loop. To avoid that, we implement a simple static semaphore.
-  if (!$in_error_state && function_exists('module_implements')) {
+  // Don't log messages if not enabled for this severity level.
+  if (!watchdog_severity_enabled($severity)) {
+    return;
+  }
+
+  // It is possible that the error handling will itself trigger an error. In
+  // that case, we could end up in an infinite loop. To avoid that, we implement
+  // a simple static semaphore.
+  if (!$in_error_state && function_exists('module_invoke_all')) {
     $in_error_state = TRUE;
 
-    // The user object may not exist in all conditions, so 0 is substituted if needed.
+    // The user object may not exist in all conditions, so 0 is substituted if
+    // needed.
     $user_uid = isset($user->uid) ? $user->uid : 0;
 
-    // Prepare the fields to be logged
+    // Prepare the fields to be logged.
     $log_entry = array(
       'type'        => $type,
       'message'     => $message,
@@ -2082,10 +2461,8 @@ function watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NO
       'timestamp'   => time(),
     );
 
-    // Call the logging hooks to log/process the message
-    foreach (module_implements('watchdog') as $module) {
-      module_invoke($module, 'watchdog', $log_entry);
-    }
+    // Call the logging hooks to log/process the message.
+    module_invoke_all('watchdog', $log_entry);
 
     // It is critical that the semaphore is only cleared here, in the parent
     // watchdog() call (not outside the loop), to prevent recursive execution.
@@ -2104,16 +2481,28 @@ function watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NO
  * backdrop_set_message(t('An error occurred and processing did not complete.'), 'error');
  * @endcode
  *
- * @param string $message
+ * @param string|int|null $message
  *   (optional) The translated message to be displayed to the user. For
  *   consistency with other messages, it should begin with a capital letter and
  *   end with a period.
  * @param string $type
- *   (optional) The message's type. Defaults to 'status'. These values are
+ *   (optional) The type of the message. Defaults to 'status'. These values are
  *   supported:
- *   - 'status'
- *   - 'warning'
- *   - 'error'
+ *   - 'status': Success messages that need to be displayed as a direct result
+ *     of a user action. Shown once, on the page where the user action finishes.
+ *     Usually shown with a green ✓ (check) icon.
+ *   - 'info': Messages used for displaying generic information, or help text
+ *     that may persist across various pages. Can be the result of a user action
+ *     on another section of the site (like enabling a module or a certain
+ *     setting for example). This type is to be used when the message is not an
+ *     error, a warning, or a success message. Usually shown with a blue or gray
+ *     "i" (info) icon.
+ *   - 'warning': Cautionary advice messages, used to inform of a possible
+ *     problem, or other unexpected behavior. Usually shown with a yellow or
+ *     orange exclamation mark icon.
+ *   - 'error': The opposite of success messages. Used to inform of problems
+ *     that have been found, or have been caused as a direct result of a user
+ *     action. Usually shown with a red "x" icon.
  * @param bool $repeat
  *   (optional) If this is FALSE and the message is already set, then the
  *   message won't be repeated. Defaults to TRUE.
@@ -2125,6 +2514,8 @@ function watchdog($type, $message, $variables = array(), $severity = WATCHDOG_NO
  *
  * @see backdrop_get_messages()
  * @see theme_status_messages()
+ *
+ * @since 1.11.0 Added "info" as an acceptable $type parameter.
  */
 function backdrop_set_message($message = NULL, $type = 'status', $repeat = TRUE) {
   if ($message || $message === '0' || $message === 0) {
@@ -2147,13 +2538,14 @@ function backdrop_set_message($message = NULL, $type = 'status', $repeat = TRUE)
 /**
  * Returns all messages that have been set with backdrop_set_message().
  *
- * @param string $type
+ * @param string|null $type
  *   (optional) Limit the messages returned by type. Defaults to NULL, meaning
  *   all types. These values are supported:
  *   - NULL
  *   - 'status'
  *   - 'warning'
  *   - 'error'
+ *   - 'info'.
  * @param bool $clear_queue
  *   (optional) If this is TRUE, the queue will be cleared of messages of the
  *   type specified in the $type parameter. Otherwise the queue will be left
@@ -2192,7 +2584,7 @@ function backdrop_get_messages($type = NULL, $clear_queue = TRUE) {
 /**
  * Determines whether or not messages should be shown on the current page.
  *
- * @param bool $show
+ * @param bool|null $show
  *   Set the show messages flag. If not provided, the current status of the flag
  *   will be returned.
  * @return bool
@@ -2212,13 +2604,14 @@ function backdrop_show_messages($show = NULL) {
  *
  * The title is displayed on the page and in the title bar.
  *
- * @return
+ * @return string
  *   The current page's title.
  */
 function backdrop_get_title() {
   $title = backdrop_set_title();
 
-  // During a bootstrap, menu.inc is not included and thus we cannot provide a title.
+  // During a bootstrap, menu.inc is not included and thus we cannot provide a
+  // title.
   if (!isset($title) && function_exists('menu_get_active_title')) {
     $title = check_plain(menu_get_active_title());
   }
@@ -2231,16 +2624,16 @@ function backdrop_get_title() {
  *
  * The title is displayed on the page and in the title bar.
  *
- * @param $title
+ * @param string|null $title
  *   Optional string value to assign to the page title; or if set to NULL
  *   (default), leaves the current title unchanged.
- * @param $output
+ * @param int $output
  *   Optional flag - normally should be left as CHECK_PLAIN. Only set to
  *   PASS_THROUGH if you have already removed any possibly dangerous code
  *   from $title using a function like check_plain() or filter_xss(). With this
  *   flag the string will be passed through unchanged.
  *
- * @return
+ * @return string
  *   The updated title of the current page.
  */
 function backdrop_set_title($title = NULL, $output = CHECK_PLAIN) {
@@ -2254,13 +2647,15 @@ function backdrop_set_title($title = NULL, $output = CHECK_PLAIN) {
 }
 
 /**
- * Returns a URL-safe, base64 encoded string of highly randomized bytes (over the full 8-bit range).
+ * Returns a URL-safe, base64 encoded string of highly randomized bytes (over
+ * the full 8-bit range).
  *
- * @param $byte_count
+ * @param int $byte_count
  *   The number of random bytes to fetch and base64 encode.
  *
  * @return string
- *   The base64 encoded result will have a length of up to 4 * $byte_count.
+ *   The base64 encoded result will have a length of up to
+ *   ceil($byte_count * 4 / 3).
  */
 function backdrop_random_key($byte_count = 32) {
   return backdrop_base64_encode(backdrop_random_bytes($byte_count));
@@ -2269,7 +2664,7 @@ function backdrop_random_key($byte_count = 32) {
 /**
  * Returns a URL-safe, base64 encoded version of the supplied string.
  *
- * @param $string
+ * @param string $string
  *   The string to convert to base64.
  *
  * @return string
@@ -2283,31 +2678,26 @@ function backdrop_base64_encode($string) {
 /**
  * Returns a string of highly randomized bytes (over the full 8-bit range).
  *
- * This function is better than simply calling mt_rand() or any other built-in
- * PHP function because it can return a long string of bytes (compared to < 4
- * bytes normally from mt_rand()) and uses the best available pseudo-random
- * source.
+ * This function is better than calling mt_rand() or any other built-in PHP
+ * function because it can return a long string of bytes (compared to < 4 bytes
+ * normally from mt_rand()), and uses the best available pseudo-random source.
  *
- * @param $count
+ * @param int $count
  *   The number of characters (bytes) to return in the string.
+ *
+ * @return string
+ *   A string of random characters.
  */
-function backdrop_random_bytes($count)  {
+function backdrop_random_bytes($count) {
   // $random_state does not use backdrop_static as it stores random bytes.
-  static $random_state, $bytes, $has_openssl;
+  static $random_state, $bytes;
 
-  $missing_bytes = $count - strlen($bytes);
+  $missing_bytes = $count - strlen((string) $bytes);
 
   if ($missing_bytes > 0) {
-    // PHP versions prior 5.3.4 experienced openssl_random_pseudo_bytes()
-    // locking on Windows and rendered it unusable.
-    if (!isset($has_openssl)) {
-      $has_openssl = version_compare(PHP_VERSION, '5.3.4', '>=') && function_exists('openssl_random_pseudo_bytes');
-    }
-
-    // openssl_random_pseudo_bytes() will find entropy in a system-dependent
-    // way.
-    if ($has_openssl) {
-      $bytes .= openssl_random_pseudo_bytes($missing_bytes);
+    // Available since PHP 7.
+    if (function_exists('random_bytes')) {
+      $bytes .= random_bytes($missing_bytes);
     }
 
     // Else, read directly from /dev/urandom, which is available on many *nix
@@ -2320,6 +2710,12 @@ function backdrop_random_bytes($count)  {
       fclose($fh);
     }
 
+    // openssl_random_pseudo_bytes() will find entropy in a system-dependent
+    // way.
+    elseif (function_exists('openssl_random_pseudo_bytes')) {
+      $bytes .= openssl_random_pseudo_bytes($missing_bytes);
+    }
+
     // If we couldn't get enough entropy, this simple hash-based PRNG will
     // generate a good set of pseudo-random bytes on any system.
     // Note that it may be important that our $random_state is passed
@@ -2328,11 +2724,12 @@ function backdrop_random_bytes($count)  {
     // the microtime() - is prepended rather than appended. This is to avoid
     // directly leaking $random_state via the $output stream, which could
     // allow for trivial prediction of further "random" numbers.
-    if (strlen($bytes) < $count) {
-      // Initialize on the first call. The contents of $_SERVER includes a mix of
-      // user-specific and system information that varies a little with each page.
+    if (empty($bytes) || strlen($bytes) < $count) {
+      // Initialize on the first call. The contents of $_SERVER includes a mix
+      // of user-specific and system information that varies a little with each
+      // page.
       if (!isset($random_state)) {
-        $random_state = print_r($_SERVER, TRUE);
+        $random_state = print_r($_SERVER, TRUE); // phpcs:ignore
         if (function_exists('getmypid')) {
           // Further initialize with the somewhat random PHP process ID.
           $random_state .= getmypid();
@@ -2377,10 +2774,10 @@ function backdrop_hmac_base64($data, $key) {
 /**
  * Calculates a base-64 encoded, URL-safe sha-256 hash.
  *
- * @param $data
+ * @param string $data
  *   String to be hashed.
  *
- * @return
+ * @return string
  *   A base-64 encoded sha-256 hash, with + replaced with -, / with _ and
  *   any = padding characters removed.
  */
@@ -2409,10 +2806,10 @@ function backdrop_hash_base64($data) {
  * $correct = backdrop_array_merge_deep($link_options_1, $link_options_2);
  * @endcode
  *
- * @param ...
+ * @param array ...
  *   Arrays to merge.
  *
- * @return
+ * @return array
  *   The merged array.
  *
  * @see backdrop_array_merge_deep_array()
@@ -2436,9 +2833,14 @@ function backdrop_array_merge_deep() {
  * - call_user_func_array('backdrop_array_merge_deep', $arrays_to_merge);
  * - backdrop_array_merge_deep_array($arrays_to_merge);
  *
+ * @param array $arrays
+ *   Arrays to be merged.
+ *
+ * @return array
+ *
  * @see backdrop_array_merge_deep()
  */
-function backdrop_array_merge_deep_array($arrays) {
+function backdrop_array_merge_deep_array(array $arrays) {
   $result = array();
 
   foreach ($arrays as $array) {
@@ -2451,7 +2853,10 @@ function backdrop_array_merge_deep_array($arrays) {
       }
       // Recurse when both values are arrays.
       elseif (isset($result[$key]) && is_array($result[$key]) && is_array($value)) {
-        $result[$key] = backdrop_array_merge_deep_array(array($result[$key], $value));
+        $result[$key] = backdrop_array_merge_deep_array(array(
+          $result[$key],
+          $value,
+        ));
       }
       // Otherwise, use the latter value, overriding any previous value.
       else {
@@ -2472,6 +2877,7 @@ function backdrop_array_merge_deep_array($arrays) {
 function backdrop_anonymous_user() {
   // Because this is called early in the bootstrap (starting the session) it
   // must not use the autoloader, so it's pulled in manually.
+  require_once BACKDROP_ROOT . '/core/includes/userinterface.inc';
   require_once BACKDROP_ROOT . '/core/includes/anonymous.inc';
   $user = new AnonymousUser(array(
     'hostname' => ip_address(),
@@ -2482,14 +2888,15 @@ function backdrop_anonymous_user() {
 /**
  * Ensures Backdrop is bootstrapped to the specified phase.
  *
- * In order to bootstrap Backdrop from another PHP script, you can use this code:
+ * In order to bootstrap Backdrop from another PHP script, you can use this
+ * code:
  * @code
  *   define('BACKDROP_ROOT', '/path/to/backdrop');
  *   require_once BACKDROP_ROOT . '/core/includes/bootstrap.inc';
  *   backdrop_bootstrap(BACKDROP_BOOTSTRAP_FULL);
  * @endcode
  *
- * @param int $phase
+ * @param int|null $phase
  *   A constant telling which phase to bootstrap to. When you bootstrap to a
  *   particular phase, all earlier phases are run automatically. Possible
  *   values:
@@ -2503,12 +2910,16 @@ function backdrop_anonymous_user() {
  *   - BACKDROP_BOOTSTRAP_LANGUAGE: Finds out the language of the page.
  *   - BACKDROP_BOOTSTRAP_FULL: Fully loads Backdrop. Validates and fixes input
  *     data.
- * @param boolean $new_phase
+ * @param bool $new_phase
  *   A boolean, set to FALSE if calling backdrop_bootstrap from inside a
  *   function called from backdrop_bootstrap (recursion).
  *
  * @return int
  *   The most recently completed phase.
+ *
+ * @throws Exception
+ *   This function rethrows any exceptions it encounters, unless Backdrop has
+ *   not yet been installed, in which case it will redirect to the installer.
  */
 function backdrop_bootstrap($phase = NULL, $new_phase = TRUE) {
   // Not backdrop_static(), because does not depend on any run-time information.
@@ -2523,8 +2934,8 @@ function backdrop_bootstrap($phase = NULL, $new_phase = TRUE) {
     BACKDROP_BOOTSTRAP_LANGUAGE,
     BACKDROP_BOOTSTRAP_FULL,
   );
-  // Not backdrop_static(), because the only legitimate API to control this is to
-  // call backdrop_bootstrap() with a new phase parameter.
+  // Not backdrop_static(), because the only legitimate API to control this is
+  // to call backdrop_bootstrap() with a new phase parameter.
   static $final_phase;
   // Not backdrop_static(), because it's impossible to roll back to an earlier
   // bootstrap state.
@@ -2611,8 +3022,16 @@ function backdrop_bootstrap($phase = NULL, $new_phase = TRUE) {
  * This is called when an uncaught exception is thrown during the initial
  * bootstrap process. The most common misconfiguration is pointing Backdrop
  * at an empty database. If this happens, redirect the user to install.php.
+ *
+ * @return bool
  */
 function backdrop_bootstrap_is_installed() {
+  // If in any maintenance mode (install, update, restore, etc.) assume the site
+  // is in the process of installing or restoring.
+  if (defined('MAINTENANCE_MODE')) {
+    return TRUE;
+  }
+
   // We may get a situation where the config directory has been specified in
   // settings.php but the database is empty. In which case a config exception
   // is thrown in the first bootstrap phase but the database hasn't been loaded.
@@ -2624,7 +3043,8 @@ function backdrop_bootstrap_is_installed() {
       // $GLOBALS['databases'] variable.
       Database::getConnection('default');
     }
-    catch (Exception $e) {}
+    catch (Exception $e) {
+    }
   }
 
   if (empty($GLOBALS['databases'])) {
@@ -2647,6 +3067,8 @@ function backdrop_bootstrap_is_installed() {
 
 /**
  * Returns the time zone of the current user.
+ *
+ * @return string
  */
 function backdrop_get_user_timezone() {
   global $user;
@@ -2671,21 +3093,18 @@ function backdrop_get_user_timezone() {
 /**
  * Provides custom PHP error handling.
  *
- * @param $error_level
+ * @param int $error_level
  *   The level of the error raised.
- * @param $message
+ * @param string $message
  *   The error message.
- * @param $filename
+ * @param string $filename
  *   The filename that the error was raised in.
- * @param $line
+ * @param int $line
  *   The line number the error was raised at.
- * @param $context
- *   An array that points to the active symbol table at the point the error
- *   occurred.
  */
-function _backdrop_error_handler($error_level, $message, $filename, $line, $context) {
+function _backdrop_error_handler($error_level, $message, $filename, $line) {
   require_once BACKDROP_ROOT . '/core/includes/errors.inc';
-  _backdrop_error_handler_real($error_level, $message, $filename, $line, $context);
+  _backdrop_error_handler_real($error_level, $message, $filename, $line);
 }
 
 /**
@@ -2695,7 +3114,7 @@ function _backdrop_error_handler($error_level, $message, $filename, $line, $cont
  * always fatal: the execution of the script will stop as soon as the exception
  * handler exits.
  *
- * @param $exception
+ * @param Exception|Error $exception
  *   The exception object that was thrown.
  */
 function _backdrop_exception_handler($exception) {
@@ -2706,8 +3125,15 @@ function _backdrop_exception_handler($exception) {
     _backdrop_log_error(_backdrop_decode_exception($exception), TRUE);
   }
   catch (Exception $exception2) {
-    // Another uncaught exception was thrown while handling the first one.
-    // If we are displaying errors, then do so with no possibility of a further uncaught exception being thrown.
+    // Default the status code to 500 before any other code is run. This will
+    // make any FATAL errors return 500 responses instead of 200, and also
+    // account for cases where an exception was thrown before the 500 status
+    // could be set (e.g. while loading a maintenance theme from cache).
+    backdrop_add_http_header('Status', '500 Internal Server Error');
+
+    // Another uncaught exception was thrown while handling the first one. If we
+    // are displaying errors, then do so with no possibility of a further
+    // uncaught exception being thrown.
     if (error_displayable()) {
       print '<h1>Additional uncaught exception thrown while handling exception.</h1>';
       print '<h2>Original</h2><p>' . _backdrop_render_exception_safe($exception) . '</p>';
@@ -2720,35 +3146,18 @@ function _backdrop_exception_handler($exception) {
  * Sets up the script environment and loads settings.php.
  */
 function _backdrop_bootstrap_configuration() {
-  // Set the Backdrop custom error handler.
-  set_error_handler('_backdrop_error_handler');
-  set_exception_handler('_backdrop_exception_handler');
-
   backdrop_environment_initialize();
+
   // Start a page timer:
   timer_start('page');
   // Initialize the configuration, including variables from settings.php.
   backdrop_settings_initialize();
+  // Sanitize input from $_GET, $_POST, etc.
+  _backdrop_bootstrap_sanitize_request();
 
-  // Sanitize the destination parameter (which is often used for redirects) to
-  // prevent open redirect attacks leading to other domains. Sanitize both
-  // $_GET['destination'] and $_REQUEST['destination'] to protect code that
-  // relies on either, but do not sanitize $_POST to avoid interfering with
-  // unrelated form submissions. The sanitization happens here because
-  // url_is_external() requires settings.php variables to be available.
-  if (isset($_GET['destination']) || isset($_REQUEST['destination'])) {
-    require_once BACKDROP_ROOT . '/core/includes/common.inc';
-    // If the destination is an external URL, remove it.
-    if (isset($_GET['destination']) && url_is_external($_GET['destination'])) {
-      unset($_GET['destination']);
-      unset($_REQUEST['destination']);
-    }
-    // If there's still something in $_REQUEST['destination'] that didn't come
-    // from $_GET, check it too.
-    if (isset($_REQUEST['destination']) && (!isset($_GET['destination']) || $_REQUEST['destination'] != $_GET['destination']) && url_is_external($_REQUEST['destination'])) {
-      unset($_REQUEST['destination']);
-    }
-  }
+  // Set the Backdrop custom error handler.
+  set_error_handler('_backdrop_error_handler');
+  set_exception_handler('_backdrop_exception_handler');
 
   // Load configuration classes and functions.
   require_once BACKDROP_ROOT . '/core/includes/config.inc';
@@ -2761,10 +3170,29 @@ function _backdrop_bootstrap_configuration() {
     install_goto('core/install.php');
   }
 
+  // Untrusted host names, return 400 Bad Request to the end-user.
+  if (!defined('MAINTENANCE_MODE') && !backdrop_check_trusted_hosts($_SERVER['HTTP_HOST'])) {
+    http_response_code(400);
+    print format_string('HTTP Host "@hostname" is not included in the "trusted_host_patterns" setting of this site.', array(
+      '@hostname' => $_SERVER['HTTP_HOST'],
+    ));
+    exit;
+  }
+
+  // Bootstrap the database if it is needed but not yet available.
+  $config_storage = config_get_config_storage('active');
+
   // Check that the config directory is not empty.
-  if (!defined('MAINTENANCE_MODE') && ($directory = config_get_config_directory('active'))) {
-    if (!(is_file($directory . '/system.core.json') || is_file($directory . '/system.performance.json'))) {
-      throw new Exception("The configuration directory in settings.php is specified as '$directory', but this directory is either empty or missing crucial files. Check that the \$config_directories variable is correct in settings.php.");
+  if (!defined('MAINTENANCE_MODE') && (!empty($config_storage))) {
+    if (!($config_storage->exists('system.core') || $config_storage->exists('system.performance'))) {
+      if (is_a($config_storage, 'ConfigFileStorage')) {
+        $directory = config_get_config_directory('active');
+        $exception_message = "The configuration directory in settings.php is specified as '$directory', but this directory is either empty or missing crucial files. Check that the \$config_directories variable is correct in settings.php.";
+      }
+      else {
+        $exception_message = "The active configuration location is either empty or missing crucial information. Check that the \$settings['config_active_class'] variable is correct in settings.php.";
+      }
+      throw new Exception($exception_message);
     }
   }
 }
@@ -2774,6 +3202,7 @@ function _backdrop_bootstrap_configuration() {
  */
 function _backdrop_bootstrap_page_cache() {
   global $user;
+  $site_config = config('system.core');
 
   // Allow specifying special cache handlers in settings.php, like
   // using memcached or files for storing cache information.
@@ -2783,7 +3212,7 @@ function _backdrop_bootstrap_page_cache() {
   }
 
   try {
-    $cache_enabled = config_get('system.core', 'cache') ? TRUE : FALSE;
+    $cache_enabled = $site_config->get('cache') ? TRUE : FALSE;
   }
   catch (ConfigException $e) {
     $cache_enabled = FALSE;
@@ -2799,7 +3228,7 @@ function _backdrop_bootstrap_page_cache() {
     // checked, hook_boot might check for anonymous user etc.
     $user = backdrop_anonymous_user();
     // Get the page from the cache.
-    $background_fetch_enabled = config_get('system.core', 'page_cache_background_fetch');
+    $background_fetch_enabled = $site_config->get('page_cache_background_fetch');
     $cache = backdrop_page_get_cache(FALSE, $background_fetch_enabled);
     // If there is a cached page, display it.
     if (is_object($cache)) {
@@ -2808,7 +3237,7 @@ function _backdrop_bootstrap_page_cache() {
       // Although a cached page was found, it may be expired if background
       // fetch is enabled. So we calculate if it is within the max age based
       // on its creation date.
-      $lifetime = config_get('system.core', 'page_cache_maximum_age');
+      $lifetime = $site_config->get('page_cache_maximum_age');
       $expires_on = $cache->created + $lifetime;
       $cache_expired = REQUEST_TIME > $expires_on;
 
@@ -2816,7 +3245,7 @@ function _backdrop_bootstrap_page_cache() {
       ob_start();
 
       // Calls to hook_boot() on page cache requests is deprecated, though they
-      // can still be enabled via settings.php
+      // can still be enabled via settings.php.
       if (settings_get('page_cache_invoke_hooks', FALSE)) {
         // Restore the metadata cached with the page for hook_boot().
         $_GET['q'] = $cache->data['path'];
@@ -2851,6 +3280,10 @@ function _backdrop_bootstrap_page_cache() {
       // Flushing for PHP-FPM based installations.
       if (function_exists('fastcgi_finish_request')) {
         fastcgi_finish_request();
+      }
+      // Flushing for LiteSpeed servers.
+      elseif (function_exists('litespeed_finish_request')) {
+        litespeed_finish_request();
       }
       // Flushing for Apache mod_php installations.
       else {
@@ -2937,8 +3370,9 @@ function _backdrop_bootstrap_variables() {
     }
   }
 
-
-  // Load variables from the database, but do not overwrite variables set in settings.php.
+  // Load variables from the database, but do not overwrite variables set in
+  // settings.php.
+  // phpcs:ignore
   $conf = variable_initialize(isset($conf) ? $conf : array());
 }
 
@@ -2959,6 +3393,103 @@ function _backdrop_bootstrap_page_header() {
 }
 
 /**
+ * Sanitizes unsafe input from the PHP request super-globals.
+ */
+function _backdrop_bootstrap_sanitize_request() {
+  // Remove dangerous keys from input data.
+  $allowlist = settings_get('sanitize_input_allowlist', array());
+  if (empty($allowlist)) {
+    // @todo Remove forbidden backwards compatibility word in Backdrop 2.x.
+    // cspell:disable-next-line
+    $allowlist = settings_get('sanitize_input_whitelist', array());
+  }
+  $log_sanitized_keys = settings_get('sanitize_input_logging');
+
+  // Process query string parameters.
+  $sanitized_keys = _backdrop_bootstrap_sanitize_input($_GET, $allowlist);
+  if ($sanitized_keys && $log_sanitized_keys) {
+    trigger_error(format_string('Potentially unsafe keys removed from query string parameters (GET): @keys', array('@keys' => implode(', ', $sanitized_keys))), E_USER_WARNING);
+  }
+  // Process request body parameters.
+  $sanitized_keys = _backdrop_bootstrap_sanitize_input($_POST, $allowlist);
+  if ($sanitized_keys && $log_sanitized_keys) {
+    trigger_error(format_string('Potentially unsafe keys removed from request body parameters (POST): @keys', array('@keys' => implode(', ', $sanitized_keys))), E_USER_WARNING);
+  }
+  // Process cookie parameters.
+  $sanitized_keys = _backdrop_bootstrap_sanitize_input($_COOKIE, $allowlist);
+  if ($sanitized_keys && $log_sanitized_keys) {
+    trigger_error(format_string('Potentially unsafe keys removed from cookie parameters (COOKIE): @keys', array('@keys' => implode(', ', $sanitized_keys))), E_USER_WARNING);
+  }
+  // Process request global. No need to log; already logged in $_GET and $_POST.
+  _backdrop_bootstrap_sanitize_input($_REQUEST, $allowlist);
+
+  // Sanitize the destination parameter (which is often used for redirects) to
+  // prevent open redirect attacks leading to other domains. Sanitize both
+  // $_GET['destination'] and $_REQUEST['destination'] to protect code that
+  // relies on either, but do not sanitize $_POST to avoid interfering with
+  // unrelated form submissions. The sanitization happens here because
+  // url_is_external() requires settings.php variables to be available.
+  if (isset($_GET['destination']) || isset($_REQUEST['destination'])) {
+    require_once BACKDROP_ROOT . '/core/includes/common.inc';
+    // If the destination is an external URL, remove it.
+    if (isset($_GET['destination']) && url_is_external($_GET['destination'])) {
+      $sanitized_keys = array('External URL in GET: ' . $_GET['destination']);
+    }
+    // If there's still something in $_REQUEST['destination'] that didn't come
+    // from $_GET, check it too.
+    if (isset($_REQUEST['destination']) && (!isset($_GET['destination']) || $_REQUEST['destination'] != $_GET['destination']) && url_is_external($_REQUEST['destination'])) {
+      $sanitized_keys = array('External URL in REQUEST: ' . $_REQUEST['destination']);
+    }
+
+    // If there is a query string, check its query parameters.
+    if (isset($_GET['destination'])) {
+      $destination_parts = backdrop_parse_url($_GET['destination']);
+    }
+
+    if (!empty($destination_parts['query'])) {
+      $sanitized_keys = _backdrop_bootstrap_sanitize_input($destination_parts['query'], $allowlist);
+    }
+
+    if ($sanitized_keys) {
+      unset($_GET['destination']);
+      unset($_REQUEST['destination']);
+      if ($log_sanitized_keys) {
+        trigger_error(format_string('Potentially unsafe values removed from the destination query parameter: @keys', array('@keys' => implode(', ', $sanitized_keys))), E_USER_WARNING);
+      }
+    }
+  }
+}
+
+/**
+ * Sanitizes unsafe keys from request input.
+ *
+ * @param array $input
+ *   The input data array from a request to be sanitized.
+ * @param string[] $allowlist
+ *   Allowed list of input keys that are considered acceptable.
+ *
+ * @return string[]
+ *   The list of any input keys have been filtered out, if any.
+ */
+function _backdrop_bootstrap_sanitize_input(array &$input, array $allowlist = array()) {
+  $sanitized_keys = array();
+
+  if (is_array($input)) {
+    foreach ($input as $key => $value) {
+      if ($key !== '' && substr($key, 0, 1) === '#' && !in_array($key, $allowlist, TRUE)) {
+        unset($input[$key]);
+        $sanitized_keys[] = $key;
+      }
+      elseif (is_array($input[$key])) {
+        $sanitized_keys = array_merge($sanitized_keys, _backdrop_bootstrap_sanitize_input($input[$key], $allowlist));
+      }
+    }
+  }
+
+  return $sanitized_keys;
+}
+
+/**
  * Returns the current bootstrap phase for this Backdrop process.
  *
  * The current phase is the one most recently completed by backdrop_bootstrap().
@@ -2972,7 +3503,7 @@ function backdrop_get_bootstrap_phase() {
 /**
  * Returns the test prefix if this is an internal request from SimpleTest.
  *
- * @return
+ * @return string|false
  *   Either the simpletest prefix (the string "simpletest" followed by any
  *   number of digits) or FALSE if the user agent does not contain a valid
  *   HMAC and timestamp.
@@ -2987,10 +3518,10 @@ function backdrop_valid_test_ua() {
 
   if (isset($_SERVER['HTTP_USER_AGENT']) && preg_match("/^(simpletest\d+);(.+);(.+);(.+)$/", $_SERVER['HTTP_USER_AGENT'], $matches)) {
     list(, $prefix, $time, $salt, $hmac) = $matches;
-    $check_string =  $prefix . ';' . $time . ';' . $salt;
-    // We use the salt from settings.php to make the HMAC key, since
-    // the database is not yet initialized and we can't access any Backdrop variables.
-    // The file properties add more entropy not easily accessible to others.
+    $check_string = $prefix . ';' . $time . ';' . $salt;
+    // We use the salt from settings.php to make the HMAC key, since the
+    // database is not yet initialized and we can't access any Backdrop
+    // variables. The file properties add more entropy.
     $key = settings_get('hash_salt') . filectime(__FILE__) . fileinode(__FILE__);
     $time_diff = REQUEST_TIME - $time;
     // Since we are making a local request a 5 second time window is allowed,
@@ -3007,14 +3538,20 @@ function backdrop_valid_test_ua() {
 
 /**
  * Generates a user agent string with a HMAC and timestamp for simpletest.
+ *
+ * @param string $prefix
+ *   String to be prefixed to the user agent string.
+ *
+ * @return string
+ *   User agent string.
  */
 function backdrop_generate_test_ua($prefix) {
   static $key;
 
   if (!isset($key)) {
-    // We use the salt from settings.php to make the HMAC key, since
-    // the database is not yet initialized and we can't access any Backdrop variables.
-    // The file properties add more entropy not easily accessible to others.
+    // We use the salt from settings.php to make the HMAC key, since the
+    // database is not yet initialized and we can't access any Backdrop
+    // variables. The file properties add more entropy.
     $key = settings_get('hash_salt') . filectime(__FILE__) . fileinode(__FILE__);
   }
   // Generate a moderately secure HMAC based on the database credentials.
@@ -3066,6 +3603,8 @@ function fast_404() {
 
 /**
  * Returns TRUE if a Backdrop installation is currently being attempted.
+ *
+ * @return bool
  */
 function backdrop_installation_attempted() {
   return defined('MAINTENANCE_MODE') && MAINTENANCE_MODE == 'install';
@@ -3092,6 +3631,8 @@ function backdrop_installation_attempted() {
  * Use t() if your code will never run during the Backdrop installation phase.
  * Use st() if your code will only run during installation and never any other
  * time. Use get_t() if your code could run in either circumstance.
+ *
+ * @return string
  *
  * @see t()
  * @see st()
@@ -3137,7 +3678,7 @@ function backdrop_language_initialize() {
 /**
  * Returns a list of the built-in language types.
  *
- * @return
+ * @return array
  *   An array of key-values pairs where the key is the language type name and
  *   the value is its configurability (TRUE/FALSE).
  */
@@ -3152,7 +3693,7 @@ function language_types_get_default() {
 /**
  * Returns TRUE if there is more than one language enabled.
  *
- * @return
+ * @return bool
  *   TRUE if more than one language is enabled.
  */
 function language_multilingual() {
@@ -3170,24 +3711,29 @@ function language_multilingual() {
 /**
  * Returns a list of configured languages.
  *
- * @param $only_enabled
+ * @param bool $only_enabled
  *   (optional) Whether to return only enabled languages.
- * @param $option_list
+ * @param bool $option_list
  *   (optional) Whether to return a list of options instead of objects. This
- *   list is suitable for use in a select list #options array.
+ *   list is suitable for use in a select list #options array. This list is
+ *   ordered by weight and then language name.
+ * @param bool $native_names
+ *   (optional) Whether the option_list labels should use the native name
+ *   instead of the English language name. Only applies if $option_list is TRUE.
  *
- * @return
- *   An associative array of languages, keyed by the language code, ordered by
- *   weight ascending and name ascending.
+ * @return (stdClass|string)[]
+ *   An associative array of languages, keyed by the language code.
+ *
+ * @since 1.18.2 Added $native_names parameter.
  */
-function language_list($only_enabled = FALSE, $option_list = FALSE) {
+function language_list($only_enabled = FALSE, $option_list = FALSE, $native_names = FALSE) {
   $languages = &backdrop_static(__FUNCTION__);
-  // Initialize master language list.
+  // Initialize primary language list.
   if (!isset($languages)) {
     // Initialize local language list caches.
     $languages = array('all' => array(), 'enabled' => array());
 
-    // Fill in master language list based on current configuration. This may be
+    // Fill in primary language list based on current configuration. This may be
     // in the event of an early bootstrap error, so fallback to defaults.
     try {
       $default_langcode = config_get('system.core', 'language_default');
@@ -3213,6 +3759,7 @@ function language_list($only_enabled = FALSE, $option_list = FALSE) {
       $languages['all']['en'] = (object) array(
         'langcode' => 'en',
         'name' => 'English',
+        'native' => 'English',
         'direction' => 0,
         'enabled' => TRUE,
         'weight' => 0,
@@ -3234,8 +3781,21 @@ function language_list($only_enabled = FALSE, $option_list = FALSE) {
   if ($option_list) {
     $list = array();
     $this_list = $only_enabled ? $languages['enabled'] : $languages['all'];
+    // backdrop_sort() needed for ordering, but common.inc may not be loaded
+    // in very early bootstrap. Include only if returning an option list.
+    require_once __DIR__ . '/common.inc';
+    backdrop_sort($this_list, array(
+      'weight' => SORT_NUMERIC,
+      'name' => SORT_STRING,
+    ));
     foreach ($this_list as $language) {
-      $list[$language->langcode] = $language->name;
+      if ($native_names && isset($language->native)) {
+        $label = $language->native;
+      }
+      else {
+        $label = $language->name;
+      }
+      $list[$language->langcode] = $label;
     }
     return $list;
   }
@@ -3246,10 +3806,10 @@ function language_list($only_enabled = FALSE, $option_list = FALSE) {
 /**
  * Loads a language object from the database.
  *
- * @param $langcode
+ * @param string $langcode
  *   The language code.
  *
- * @return
+ * @return stdClass|false
  *   A fully-populated language object or FALSE.
  */
 function language_load($langcode) {
@@ -3260,10 +3820,10 @@ function language_load($langcode) {
 /**
  * Produced the printed name for a language for display.
  *
- * @param $langcode
+ * @param string $langcode
  *   The language code.
  *
- * @return
+ * @return string
  *   The printed name of the language.
  */
 function language_name($langcode) {
@@ -3281,7 +3841,7 @@ function language_name($langcode) {
 /**
  * Returns the default language used on the site.
  *
- * @return
+ * @return stdClass
  *   A language object.
  */
 function language_default() {
@@ -3291,7 +3851,8 @@ function language_default() {
     try {
       $default_langcode = config_get('system.core', 'language_default');
     }
-    catch (ConfigException $e) {}
+    catch (ConfigException $e) {
+    }
     if (empty($default_langcode)) {
       $default_langcode = 'en';
     }
@@ -3331,14 +3892,14 @@ function language_default() {
  *
  * Examples:
  * - http://example.com/node/306 returns "node/306".
- * - http://example.com/backdropfolder/node/306 returns "node/306" while
- *   base_path() returns "/backdropfolder/".
- * - http://example.com/path/alias (which is a path alias for node/306) returns
+ * - http://example.com/backdrop_folder/node/306 returns "node/306" while
+ *   base_path() returns "/backdrop_folder/".
+ * - http://example.com/url-alias (which is a URL alias for node/306) returns
  *   "path/alias" as opposed to the internal path.
- * - http://example.com/index.php returns an empty string (meaning: front page).
+ * - http://example.com/index.php returns an empty string (meaning: home page).
  * - http://example.com/index.php?page=1 returns an empty string.
  *
- * @return
+ * @return string
  *   The requested Backdrop URL path.
  *
  * @see current_path()
@@ -3367,13 +3928,13 @@ function request_path() {
     // If the path equals the script filename, either because 'index.php' was
     // explicitly provided in the URL, or because the server added it to
     // $_SERVER['REQUEST_URI'] even when it wasn't provided in the URL (some
-    // versions of Microsoft IIS do this), the front page should be served.
+    // versions of Microsoft IIS do this), the home page should be served.
     if ($path == basename($_SERVER['PHP_SELF'])) {
       $path = '';
     }
   }
   else {
-    // This is the front page.
+    // This is the home page.
     $path = '';
   }
 
@@ -3397,13 +3958,13 @@ function request_path() {
  * When attempting to use this function to load an element from the current
  * path, e.g. loading the node on a node page, use menu_get_object() instead.
  *
- * @param $index
+ * @param int|null $index
  *   The index of the component, where each component is separated by a '/'
  *   (forward-slash), and where the first component has an index of 0 (zero).
- * @param $path
+ * @param string|null $path
  *   A path to break into components. Defaults to the path of the current page.
  *
- * @return
+ * @return string|null|array
  *   The component specified by $index, or NULL if the specified component was
  *   not found. If called without arguments, it returns an array containing all
  *   the components of the current path.
@@ -3413,7 +3974,8 @@ function arg($index = NULL, $path = NULL) {
   // reasons (the result of explode() does not depend on any run-time
   // information), it should be resettable anyway in case a module needs to
   // free up the memory used by it.
-  // Use the advanced backdrop_static() pattern, since this is called very often.
+  // Use the advanced backdrop_static() pattern, since this is called very
+  // often.
   static $backdrop_static_fast;
   if (!isset($backdrop_static_fast)) {
     $backdrop_static_fast['arguments'] = &backdrop_static(__FUNCTION__);
@@ -3432,6 +3994,8 @@ function arg($index = NULL, $path = NULL) {
   if (isset($arguments[$path][$index])) {
     return $arguments[$path][$index];
   }
+  // Not found.
+  return NULL;
 }
 
 /**
@@ -3442,7 +4006,7 @@ function arg($index = NULL, $path = NULL) {
  * the proxy server, and not the client's. The actual header name can be
  * configured by the reverse_proxy_header variable.
  *
- * @return
+ * @return string
  *   IP address of client machine, adjusted for reverse proxy and/or cluster
  *   environments.
  */
@@ -3462,7 +4026,8 @@ function ip_address() {
         // Turn XFF header into an array.
         $forwarded = explode(',', $_SERVER[$reverse_proxy_header]);
 
-        // Trim the forwarded IPs; they may have been delimited by commas and spaces.
+        // Trim the forwarded IPs; they may have been delimited by commas and
+        // spaces.
         $forwarded = array_map('trim', $forwarded);
 
         // Tack direct client IP onto end of forwarded array.
@@ -3471,8 +4036,15 @@ function ip_address() {
         // Eliminate all trusted IPs.
         $untrusted = array_diff($forwarded, $reverse_proxy_addresses);
 
-        // The right-most IP is the most specific we can trust.
-        $ip_address = array_pop($untrusted);
+        if (!empty($untrusted)) {
+          // The right-most IP is the most specific we can trust.
+          $ip_address = array_pop($untrusted);
+        }
+        else {
+          // All IP addresses in the forwarded array are configured proxy IPs
+          // (and thus trusted). We take the leftmost IP.
+          $ip_address = array_shift($forwarded);
+        }
       }
     }
   }
@@ -3492,11 +4064,13 @@ function ip_address() {
  * module that implements hook_schema_alter(). To get the schema without
  * modifications, use backdrop_get_schema_unprocessed().
  *
- *
- * @param $table
+ * @param string|null $table
  *   The name of the table. If not given, the schema of all tables is returned.
- * @param $rebuild
+ * @param bool $rebuild
  *   If true, the schema will be rebuilt instead of retrieved from the cache.
+ *
+ * @return array|false
+ *   The schema definition of the requested table.
  */
 function backdrop_get_schema($table = NULL, $rebuild = FALSE) {
   static $schema;
@@ -3537,7 +4111,7 @@ class SchemaCache extends BackdropCacheArray {
    */
   protected function resolveCacheMiss($offset) {
     $complete_schema = backdrop_get_complete_schema();
-    $value = isset($complete_schema[$offset]) ? $complete_schema[$offset] :  NULL;
+    $value = isset($complete_schema[$offset]) ? $complete_schema[$offset] : NULL;
     $this->storage[$offset] = $value;
     $this->persist($offset);
     return $value;
@@ -3550,8 +4124,11 @@ class SchemaCache extends BackdropCacheArray {
  * The returned schema will include any modifications made by any
  * module that implements hook_schema_alter().
  *
- * @param $rebuild
+ * @param bool $rebuild
  *   If true, the schema will be rebuilt instead of retrieved from the cache.
+ *
+ * @return array
+ *   The entire database schema provided by all modules.
  */
 function backdrop_get_complete_schema($rebuild = FALSE) {
   static $schema = array();
@@ -3580,8 +4157,9 @@ function backdrop_get_complete_schema($rebuild = FALSE) {
       // Invoke hook_schema for all modules.
       foreach (module_implements('schema') as $module) {
         // Cast the result of hook_schema() to an array, as a NULL return value
-        // would cause array_merge() to set the $schema variable to NULL as well.
-        // That would break modules which use $schema further down the line.
+        // would cause array_merge() to set the $schema variable to NULL as
+        // well. That would break modules which use $schema further down the
+        // line.
         $current = (array) module_invoke($module, 'schema');
         // Set 'module' and 'name' keys for each table, and remove descriptions,
         // as they needlessly slow down cache()->get() for every single request.
@@ -3614,10 +4192,10 @@ function backdrop_get_complete_schema($rebuild = FALSE) {
  * This function is rarely called directly. Instead, it is registered as an
  * spl_autoload_function() handler, and PHP calls it for us when necessary.
  *
- * @param $class
+ * @param string $class
  *   The name of the class to check or load.
  *
- * @return
+ * @return bool
  *   TRUE if the class is currently available, FALSE otherwise.
  */
 function backdrop_autoload($class) {
@@ -3630,6 +4208,7 @@ function backdrop_autoload($class) {
     // module_invoke_all() because it uses array_merge_recursive(), which is an
     // expensive O(n^2) operation. Instead we use module_implements() and merge
     // the array manually, which is O(n).
+    include_once BACKDROP_ROOT . '/core/includes/module.inc';
     foreach (module_implements('autoload_info') as $module) {
       $module_classes = module_invoke($module, 'autoload_info');
       $module_path = backdrop_get_path('module', $module);
@@ -3717,8 +4296,8 @@ function backdrop_autoload($class) {
  * counts. These functions can use a more cumbersome, but faster variant of
  * calling backdrop_static(). It works by storing the reference returned by
  * backdrop_static() in the calling function's own static variable, thereby
- * removing the need to call backdrop_static() for each iteration of the function.
- * Conceptually, it replaces:
+ * removing the need to call backdrop_static() for each iteration of the
+ * function. Conceptually, it replaces:
  * @code
  * $foo = &backdrop_static(__FUNCTION__);
  * @endcode
@@ -3728,7 +4307,7 @@ function backdrop_autoload($class) {
  * static $foo = &backdrop_static(__FUNCTION__);
  * @endcode
  * However, the above line of code does not work, because PHP only allows static
- * variables to be initializied by literal values, and does not allow static
+ * variables to be initialized by literal values, and does not allow static
  * variables to be assigned to references.
  * - http://php.net/manual/language.variables.scope.php#language.variables.scope.static
  * - http://php.net/manual/language.variables.scope.php#language.variables.scope.references
@@ -3748,19 +4327,20 @@ function backdrop_autoload($class) {
  * }
  * @endcode
  *
- * @param $name
+ * @param string|null $name
  *   Globally unique name for the variable. For a function with only one static,
  *   variable, the function name (e.g. via the PHP magic __FUNCTION__ constant)
  *   is recommended. For a function with multiple static variables add a
  *   distinguishing suffix to the function name for each one.
- * @param $default_value
+ *   Note that NULL is for internal use in backdrop_static_reset() only.
+ * @param mixed $default_value
  *   Optional default value.
- * @param $reset
+ * @param bool $reset
  *   TRUE to reset one or all variables(s). This parameter is only used
  *   internally and shouldn't be passed in; use backdrop_static_reset() instead.
  *   (This function's return value should not be used when TRUE is passed in.)
  *
- * @return
+ * @return mixed
  *   Returns a variable by reference.
  *
  * @see backdrop_static_reset()
@@ -3768,7 +4348,8 @@ function backdrop_autoload($class) {
 function &backdrop_static($name, $default_value = NULL, $reset = FALSE) {
   static $data = array(), $default = array();
   // First check if dealing with a previously defined static variable.
-  if (isset($data[$name]) || array_key_exists($name, $data)) {
+  // If the key is set in $data, it's also set in $default.
+  if ($name && array_key_exists($name, $data)) {
     // Non-NULL $name and both $data[$name] and $default[$name] statics exist.
     if ($reset) {
       // Reset pre-existing static variable to its default value.
@@ -3801,7 +4382,7 @@ function &backdrop_static($name, $default_value = NULL, $reset = FALSE) {
 /**
  * Resets one or all centrally stored static variable(s).
  *
- * @param $name
+ * @param string|null $name
  *   Name of the static variable to reset. Omit to reset all variables.
  *   Resetting all variables should only be used, for example, for running unit
  *   tests with a clean environment.
@@ -3812,9 +4393,11 @@ function backdrop_static_reset($name = NULL) {
 
 /**
  * Detects whether the current script is running in a command-line environment.
+ *
+ * @return bool
  */
 function backdrop_is_cli() {
-  return (!isset($_SERVER['SERVER_SOFTWARE']) && (php_sapi_name() == 'cli' || (is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0)));
+  return (empty($_SERVER['SERVER_SOFTWARE']) && (php_sapi_name() == 'cli' || (is_numeric($_SERVER['argc']) && $_SERVER['argc'] > 0)));
 }
 
 /**
@@ -3824,6 +4407,8 @@ function backdrop_is_cli() {
  * X-Requested-With (as set by jQuery and other JavaScript libraries) to be
  * an HTML request. Any other types of requests must specify X-Requested-With
  * in order to be returned in an alternative format.
+ *
+ * @return bool
  */
 function backdrop_is_html() {
   return empty($_SERVER['HTTP_ACCEPT']) || strpos($_SERVER['HTTP_ACCEPT'], 'text/html') === 0 || empty($_SERVER['HTTP_X_REQUESTED_WITH']);
@@ -3831,16 +4416,20 @@ function backdrop_is_html() {
 
 /**
  * Detects if this is an AJAX HTTP request.
+ *
+ * @return bool
  */
 function backdrop_is_ajax() {
-  return !empty($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/vnd.backdrop-ajax') === 0;
+  return !empty($_POST) && !empty($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/vnd.backdrop-ajax') === 0;
 }
 
 /**
  * Detects if this is a dialog HTTP request.
+ *
+ * @return bool
  */
 function backdrop_is_dialog() {
-  return !empty($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/vnd.backdrop-dialog') === 0;
+  return !empty($_POST) && !empty($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/vnd.backdrop-dialog') === 0;
 }
 
 /**
@@ -3848,10 +4437,9 @@ function backdrop_is_dialog() {
  *
  * If Backdrop has entered into background mode, it can no longer print anything
  * to the page, because the response has already been returned to the browser.
- * Anything that has been output while in background mode will simply be
- * silently discarded. Background mode is extremely useful for doing processing
- * that doesn't require output, such as cron job execution or creating cache
- * entries.
+ * Anything that has been output while in background mode will be silently
+ * discarded. Background mode is extremely useful for doing processing that
+ * doesn't require output, such as cron job execution or creating cache entries.
  *
  * Backdrop core uses background mode in two ways:
  *   - After generating a page (logged-in or anonymous) if cron has not run
@@ -3863,7 +4451,7 @@ function backdrop_is_dialog() {
  *     will enter background mode to generate a new cache entry for the page,
  *     which will be delivered to the next user.
  *
- * @param bool $is_background
+ * @param bool|null $is_background
  *   May be set to TRUE to indicate entering background mode. Once set, it can
  *   not be set back to FALSE.
  *
@@ -3884,11 +4472,11 @@ function backdrop_is_background($is_background = NULL) {
  *
  * Used automatically by format_string().
  *
- * @param $text
+ * @param string $text
  *   The text to format (plain-text).
  *
- * @return
- *   The formatted text (html).
+ * @return string
+ *   The formatted text (HTML).
  */
 function backdrop_placeholder($text) {
   return '<em class="placeholder">' . check_plain($text) . '</em>';
@@ -3900,20 +4488,20 @@ function backdrop_placeholder($text) {
  * Wrapper for register_shutdown_function() that catches thrown exceptions to
  * avoid "Exception thrown without a stack frame in Unknown".
  *
- * @param $callback
+ * @param string|null $callback
  *   The shutdown function to register.
- * @param ...
+ * @param mixed ...
  *   Additional arguments to pass to the shutdown function.
  *
- * @return
+ * @return array
  *   Array of shutdown functions to be executed.
  *
  * @see register_shutdown_function()
  * @ingroup php_wrappers
  */
 function &backdrop_register_shutdown_function($callback = NULL) {
-  // We cannot use backdrop_static() here because the static cache is reset during
-  // batch processing, which breaks batch handling.
+  // We cannot use backdrop_static() here because the static cache is reset
+  // during batch processing, which breaks batch handling.
   static $callbacks = array();
 
   if (isset($callback)) {
@@ -3923,7 +4511,7 @@ function &backdrop_register_shutdown_function($callback = NULL) {
     }
     $args = func_get_args();
     array_shift($args);
-    // Save callback and arguments
+    // Save callback and arguments.
     $callbacks[] = array('callback' => $callback, 'arguments' => $args);
   }
   return $callbacks;
@@ -3940,8 +4528,12 @@ function _backdrop_shutdown_function() {
   chdir(BACKDROP_ROOT);
 
   try {
-    while (list($key, $callback) = each($callbacks)) {
+    // Manually iterate over the array instead of using a foreach loop.
+    // A foreach operates on a copy of the array, so any shutdown functions that
+    // were added from other shutdown functions would never be called.
+    while ($callback = current($callbacks)) {
       call_user_func_array($callback['callback'], $callback['arguments']);
+      next($callbacks);
     }
   }
   catch (Exception $exception) {
@@ -3954,24 +4546,25 @@ function _backdrop_shutdown_function() {
     try {
       watchdog('system', $message, array(), WATCHDOG_CRITICAL);
     }
-    catch (Exception $e) {}
+    catch (Exception $e) {
+    }
   }
 }
 
 /**
  * Compares the memory required for an operation to the available memory.
  *
- * @param $required
+ * @param string $required
  *   The memory required for the operation, expressed as a number of bytes with
  *   optional SI or IEC binary unit prefix (e.g. 2, 3K, 5MB, 10G, 6GiB, 8bytes,
  *   9mbytes).
- * @param $memory_limit
+ * @param string|null $memory_limit
  *   (optional) The memory limit for the operation, expressed as a number of
  *   bytes with optional SI or IEC binary unit prefix (e.g. 2, 3K, 5MB, 10G,
  *   6GiB, 8bytes, 9mbytes). If no value is passed, the current PHP
  *   memory_limit will be used. Defaults to NULL.
  *
- * @return
+ * @return bool
  *   TRUE if there is sufficient memory to allow the operation, or FALSE
  *   otherwise.
  */
@@ -4001,7 +4594,9 @@ function backdrop_clear_opcode_cache($filepath) {
 
   // Zend OPcache.
   if (function_exists('opcache_invalidate')) {
-    opcache_invalidate($filepath, TRUE);
+    // Suppress any warnings in PHP 7.2+ caused by "Zend OPcache API is
+    // restricted by "restrict_api" configuration directive".
+    @opcache_invalidate($filepath, TRUE);
   }
   // APC.
   if (function_exists('apc_delete_file')) {
@@ -4010,4 +4605,39 @@ function backdrop_clear_opcode_cache($filepath) {
     // @see http://php.net/apc-delete-file
     @apc_delete_file($filepath);
   }
+}
+
+/**
+ * Checks if a host matches the trusted host patterns in settings.php.
+ *
+ * @param string $host
+ *   The host to check against the patterns specified in settings.php.
+ *
+ * @return bool
+ *   TRUE if the host can be trusted; FALSE otherwise.
+ *
+ * @since Backdrop 1.14.0
+ */
+function backdrop_check_trusted_hosts($host) {
+  $trusted_hosts = &backdrop_static(__FUNCTION__, array());
+  $trusted_host_patterns = settings_get('trusted_host_patterns', array());
+
+  if (PHP_SAPI !== 'cli' && !empty($trusted_host_patterns)) {
+
+    if (in_array($host, $trusted_hosts)) {
+      return $host;
+    }
+
+    foreach ($trusted_host_patterns as $pattern) {
+      $pattern = sprintf('{%s}i', str_replace('}', '\\}', $pattern));
+      if (preg_match($pattern, $host)) {
+        $trusted_hosts[] = $host;
+        return TRUE;
+      }
+    }
+
+    return FALSE;
+  }
+
+  return TRUE;
 }

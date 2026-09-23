@@ -91,8 +91,17 @@ Backdrop.viewsUi.FormFieldFiller = function ($target, replace, suffix) {
   this.replace = replace || '';
   this.suffix = suffix || '';
 
+  // Copy the transliteration options from the machine name element.
+  var machineNameData = $('[data-machine-name]').data('machine-name');
+  this.transliterationOptions = {
+    replace: machineNameData.replace,
+    replace_pattern: machineNameData.replace_pattern,
+    replace_token: machineNameData.replace_token,
+    langcode: machineNameData.langcode
+  };
+
   // Create bound versions of this instance's object methods to use as event
-  // handlers. This will let us easily unbind those specific handlers later on.
+  // handlers. This will let us unbind those specific handlers later on.
   // NOTE: $.proxy will not work for this because it assumes we want only
   // one bound version of an object method, whereas we need one version per
   // object instance.
@@ -115,7 +124,7 @@ $.extend(Backdrop.viewsUi.FormFieldFiller.prototype, {
     // Quit populating the field as soon as it gets focus.
     this.target.on('focus.viewsUi', this.unbind);
   },
-  
+
   /**
    * Get the source form field value as altered by the passed-in parameters.
    */
@@ -123,14 +132,14 @@ $.extend(Backdrop.viewsUi.FormFieldFiller.prototype, {
     var self = this;
     return $.ajax({
       url: Backdrop.settings.basePath + "?q=" + Backdrop.encodePath("system/transliterate/" + self.source.val().toLowerCase()),
-      data: { replace: self.replace },
+      data: self.transliterationOptions,
       dataType: "text"
     });
   },
-  
+
   /**
    * Use the title for populating the fields, or send a request
-   * for a translitarated version of the source field value when needed.
+   * for a transliterated version of the source field value when needed.
    */
   _populate: function () {
     if (this.replace == '') {
@@ -140,11 +149,14 @@ $.extend(Backdrop.viewsUi.FormFieldFiller.prototype, {
       var transliterated = this.getTransliterated();
       var self = this;
       transliterated.done(function(machine) {
+        // Replace the machine name placeholder with the specific one for this
+        // field. e.g. A hyphen instead of an underscore for the path.
+        machine = machine.replace(new RegExp(self.transliterationOptions.replace,  'g'), self.replace);
         self.target.val(machine + self.suffix);
       });
     }
   },
-  
+
   /**
    * Stop prepopulating the form fields.
    */
@@ -152,7 +164,7 @@ $.extend(Backdrop.viewsUi.FormFieldFiller.prototype, {
     this.source.off('keyup.viewsUi change.viewsUi', this.populate);
     this.target.off('focus.viewsUi', this.unbind);
   },
-  
+
   /**
    * Bind event handlers to the new form fields, after they're replaced via AJAX.
    */
@@ -171,7 +183,7 @@ Backdrop.behaviors.addItemForm = {
       new Backdrop.viewsUi.AddItemForm($form);
     });
   }
-}
+};
 
 Backdrop.viewsUi.AddItemForm = function ($form) {
   $form.on('click', '.views-filterable-options :checkbox', $.proxy(this.handleCheck, this));
@@ -181,18 +193,18 @@ Backdrop.viewsUi.AddItemForm = function ($form) {
   this.$selected_div = this.$form.find('.views-selected-options').parent();
   this.$selected_div.hide();
   this.checkedItems = [];
-}
+};
 
 Backdrop.viewsUi.AddItemForm.prototype.handleCheck = function (event) {
   var $target = $(event.target);
-  var label = $.trim($target.next().text());
+  var label = $target.closest('td').next().text().trim();
   // Add/remove the checked item to the list.
   if ($target.is(':checked')) {
     this.$selected_div.css('display', 'block');
-    this.checkedItems.push(label);
+    this.checkedItems.push(Backdrop.checkPlain(label));
   }
   else {
-    var position = $.inArray(label, this.checkedItems);
+    var position = $.inArray(Backdrop.checkPlain(label), this.checkedItems);
     // Delete the item from the list and take sure that the list doesn't have undefined items left.
     for (var i = 0; i < this.checkedItems.length; i++) {
       if (i == position) {
@@ -207,17 +219,17 @@ Backdrop.viewsUi.AddItemForm.prototype.handleCheck = function (event) {
     }
   }
   this.refreshCheckedItems();
-}
+};
 
 /**
  * Refresh the display of the checked items.
  */
 Backdrop.viewsUi.AddItemForm.prototype.refreshCheckedItems = function () {
-  // Perhaps we should precache the text div, too.
+  // Perhaps we should pre-cache the text div, too.
   this.$selected_div.find('.views-selected-options')
     .html(this.checkedItems.join(', '))
     .trigger('dialogContentResize');
-}
+};
 
 /**
  * The input field items that add displays must be rendered as <input> elements.
@@ -235,8 +247,8 @@ Backdrop.behaviors.viewsUiRenderAddViewButton = {
     var $displayButtons = $menu.nextAll('input.add-display').detach();
     $displayButtons.appendTo($addDisplayDropdown.find('.action-list')).wrap('<li>')
       .parent().first().addClass('first').end().last().addClass('last');
-    // Remove the 'Add ' prefix from the button labels since they're being palced
-    // in an 'Add' dropdown.
+    // Remove the 'Add ' prefix from the button labels since they're being
+    // placed in an 'Add' dropdown.
     // @todo This assumes English, but so does $addDisplayDropdown above. Add
     //   support for translation.
     $displayButtons.each(function () {
@@ -272,7 +284,7 @@ Backdrop.behaviors.viewsUiRenderAddViewButton = {
 
 Backdrop.behaviors.viewsUiRenderAddViewButton.toggleMenu = function ($trigger) {
   $trigger.parent().toggleClass('open');
-  $trigger.next().slideToggle('fast');
+  $trigger.next().toggle();
 };
 
 Backdrop.behaviors.viewsUiSearchOptions = {
@@ -286,120 +298,122 @@ Backdrop.behaviors.viewsUiSearchOptions = {
   }
 };
 
-/**
- * Constructor for the viewsUi.OptionsSearch object.
- *
- * The OptionsSearch object filters the available options on a form according
- * to the user's search term. Typing in "taxonomy" will show only those options
- * containing "taxonomy" in their label.
- */
-Backdrop.viewsUi.OptionsSearch = function ($form) {
-  this.$form = $form;
-  // Add a keyup handler to the search box.
-  this.$searchBox = this.$form.find('#edit-options-search');
-  this.$searchBox.keyup($.proxy(this.handleKeyup, this));
-  // Get a list of option labels and their corresponding divs and maintain it
-  // in memory, so we have as little overhead as possible at keyup time.
-  this.options = this.getOptions(this.$form.find('.filterable-option'));
-  // Restripe on initial loading.
-  this.handleKeyup();
-
-  // Add a change handler to the filter group select.
-  this.$filterGroup = this.$form.find('select[name="group"]');
-  this.$filterGroup.change($.proxy(this.filterGroup, this));
-  // Trap the ENTER key in the search box so that it doesn't submit the form.
-  this.$searchBox.on('keypress', function (event) {
-    if (event.which == 13) {
-      event.preventDefault();
-    }
-  });
-};
-
-$.extend(Backdrop.viewsUi.OptionsSearch.prototype, {
   /**
-   * Assemble a list of all the filterable options on the form.
+   * Constructor for the viewsUi.OptionsSearch object.
    *
-   * @param $allOptions
-   *   A $ object representing the rows of filterable options to be
-   *   shown and hidden depending on the user's search terms.
+   * The OptionsSearch object filters the available options on a form according
+   * to the user's search term. Typing in "taxonomy" will show only those options
+   * containing "taxonomy" in their label.
    */
-  getOptions: function ($allOptions) {
-    var i, $label, $description, $option;
-    var options = [];
-    var length = $allOptions.length;
-    for (i = 0; i < length; i++) {
-      $option = $($allOptions[i]);
-      $label = $option.find('label');
-      $description = $option.find('div.description');
-      options[i] = {
-        // Search on the lowercase version of the label text + description.
-        'searchText': $label.text().toLowerCase() + " " + $description.text().toLowerCase(),
-        // Maintain a reference to the jQuery object for each row, so we don't
-        // have to create a new object inside the performance-sensitive keyup
-        // handler.
-        '$div': $option
-      };
-    }
-    return options;
-  },
+  Backdrop.viewsUi.OptionsSearch = function ($form) {
+    /**
+     *
+     * @type {jQuery}
+     */
+    this.$form = $form;
 
-  /**
-   * Keyup handler for the search box that hides or shows the relevant options.
-   */
-  handleKeyup: function (event) {
-    var found, i, j, option, search, words, wordsLength, zebraClass, zebraCounter;
+    const searchBoxSelector = '#edit-options-search';
+    const controlGroupSelector = 'select[name="group"]';
+    this.$form.on(
+      'formUpdated',
+      `${searchBoxSelector},${controlGroupSelector}`,
+      $.proxy(this.handleFilter, this),
+    );
 
-    // Determine the user's search query. The search text has been converted to
-    // lowercase.
-    search = this.$searchBox.val().toLowerCase();
-    words = search.split(' ');
-    wordsLength = words.length;
+    this.$searchBox = this.$form.find(searchBoxSelector);
+    this.$controlGroup = this.$form.find(controlGroupSelector);
 
-    // Start the counter for restriping rows.
-    zebraCounter = 0;
+    /**
+     * Get a list of option labels and their corresponding DIV tags and maintain
+     * it in memory, so we have as little overhead as possible at keyup time.
+     */
+    this.options = this.getOptions(this.$form.find('.views-filterable-option'));
 
-    // Search through the search texts in the form for matching text.
-    var length = this.options.length;
-    for (i = 0; i < length; i++) {
-      // Use a local variable for the option being searched, for performance.
-      option = this.options[i];
-      found = true;
-      // Each word in the search string has to match the item in order for the
-      // item to be shown.
-      for (j = 0; j < wordsLength; j++) {
-        if (option.searchText.indexOf(words[j]) === -1) {
-          found = false;
+    // Trap the ENTER key in the search box so that it doesn't submit the form.
+    this.$searchBox.on('keypress', (event) => {
+      if (event.which === 13) {
+        event.preventDefault();
+      }
+    });
+  };
+
+  $.extend(
+    Backdrop.viewsUi.OptionsSearch.prototype,
+  /** @lends Backdrop.viewsUi.OptionsSearch# */ {
+      /**
+       * Assemble a list of all the filterable options on the form.
+       *
+       * @param {jQuery} $allOptions
+       *   A jQuery object representing the rows of filterable options to be
+       *   shown and hidden depending on the user's search terms.
+       *
+       * @return {Array}
+       *   An array of all the filterable options.
+       */
+      getOptions($allOptions) {
+        let $title;
+        let $description;
+        let $option;
+        let $group;
+        const options = [];
+        const length = $allOptions.length;
+        for (let i = 0; i < length; i++) {
+          $option = $($allOptions[i]);
+          $title = $option.find('.title');
+          $description = $option.find('.description');
+          $group = $option.find('.group');
+          options[i] = {
+            // Search on the lowercase version of the title text + description.
+            searchText: `${$title[0].textContent.toLowerCase()} ${$description[0].textContent.toLowerCase()} ${$group[0].textContent.toLowerCase()}
+            .toLowerCase()}`,
+            // Maintain a reference to the jQuery object for each row, so we don't
+            // have to create a new object inside the performance-sensitive keyup
+            // handler.
+            $div: $option,
+          };
         }
-      }
-      if (found) {
-        // Show the checkbox row, and restripe it.
-        zebraClass = (zebraCounter % 2) ? 'odd' : 'even';
-        option.$div.show();
-        option.$div.removeClass('even odd');
-        option.$div.addClass(zebraClass);
-        zebraCounter++;
-      }
-      else {
-        // The search string wasn't found; hide this item.
-        option.$div.hide();
-      }
-    }
-  },
+        return options;
+      },
 
-  /**
-   * Filter down the list of all options based on group.
-   */
-  filterGroup: function() {
-    var groupName = this.$filterGroup.val();
-    if (groupName === 'all') {
-      this.$form.find('.views-filterable-group').show();
-    }
-    else {
-      this.$form.find('.views-filterable-group').hide();
-      this.$form.find('.views-filterable-group-' + groupName).show();
-    }
-  }
-});
+      /**
+       * Filter handler for the search box and type select that hides or shows the
+       * relevant options.
+       *
+       * @param {jQuery.Event} event
+       *   The formUpdated event.
+       */
+      handleFilter(event) {
+        // Determine the user's search query. The search text has been converted
+        // to lowercase.
+        const search = this.$searchBox[0].value.toLowerCase();
+        const words = search.split(' ');
+        // Get selected Group
+        const group = this.$controlGroup[0].value;
+
+        // Search through the search texts in the form for matching text.
+        this.options.forEach((option) => {
+          function hasWord(word) {
+            return option.searchText.indexOf(word) !== -1;
+          }
+
+          let found = true;
+          // Each word in the search string has to match the item in order for
+          // the item to be shown.
+          if (search) {
+            found = words.every(hasWord);
+          }
+          if (found && group !== 'all') {
+            found = option.$div.hasClass(group);
+          }
+
+          option.$div.toggle(found);
+        });
+
+        // Adapt dialog to content size.
+        $(event.target).trigger('dialogContentResize');
+      },
+    },
+  );
 
 Backdrop.behaviors.viewsUiPreview = {
  attach: function (context) {
@@ -408,7 +422,7 @@ Backdrop.behaviors.viewsUiPreview = {
    if ($contextualFiltersBucket.length === 0) {
      return;
    }
-  
+
    // If the display has no contextual filters, hide the form where you enter
    // the contextual filters for the live preview. If it has contextual filters,
    // show the form.
@@ -419,7 +433,7 @@ Backdrop.behaviors.viewsUiPreview = {
    else {
      $('#preview-args').parent().hide();
    }
-  
+
    // Executes an initial preview.
    if ($('#edit-displays-live-preview').once('edit-displays-live-preview').is(':checked')) {
      $('#preview-submit').once('edit-displays-live-preview').trigger('click');
@@ -432,7 +446,7 @@ Backdrop.behaviors.viewsUiPreview = {
  */
 Backdrop.behaviors.viewsUiRemoveLink = {
   attach: function (context) {
-    $('a.views-remove-link').once('views-processed').click(function(event) {
+    $('a.views-remove-link').once('views-processed').on('click', function(event) {
       var id = $(this).attr('id').replace('views-remove-link-', '');
       $('#views-row-' + id).hide();
       $('#views-removed-' + id).attr('checked', true);
@@ -712,7 +726,7 @@ $.extend(Backdrop.viewsUi.RearrangeFilterHandler.prototype, {
         // first operator dropdown we encounter, going backwards from the current
         // row. This dropdown is the one associated with the current row's filter
         // group.
-        var operatorValue = $draggableRow.prevAll('.views-group-title').find('option:selected').html();
+        var operatorValue = $draggableRow.prevAll('.views-group-title').find('option:selected').last().html();
         var operatorLabel = '<span class="views-operator-label">' + operatorValue + '</span>';
         // If the next visible row after this one is a draggable filter row,
         // display the operator label next to the current row. (Checking for
@@ -808,7 +822,7 @@ Backdrop.behaviors.viewsFilterConfigSelectAll = {
 Backdrop.behaviors.viewsImplicitFormSubmission = {
   attach: function (context, settings) {
     $(':text, :password, :radio, :checkbox', context).once('viewsImplicitFormSubmission', function() {
-      $(this).keypress(function(event) {
+      $(this).on('keypress', function(event) {
         if (event.which == 13) {
           var formId = this.form.id;
           if (formId && settings.viewsImplicitFormSubmission && settings.viewsImplicitFormSubmission[formId] && settings.viewsImplicitFormSubmission[formId].defaultButton) {
@@ -820,7 +834,7 @@ Backdrop.behaviors.viewsImplicitFormSubmission = {
                 $button.trigger(Backdrop.ajax[buttonId].element_settings.event);
               }
               else {
-                $button.click();
+                $button.trigger('click');
               }
             }
           }
@@ -895,15 +909,15 @@ Backdrop.viewsUi.Checkboxifier = function (button) {
   this.$button.hide();
   this.$parent.find('.exposed-description, .grouped-description').hide();
 
-  this.$input.click($.proxy(this, 'clickHandler'));
+  this.$input.on('click', $.proxy(this, 'clickHandler'));
 };
 
 /**
  * When the checkbox is checked or unchecked, simulate a button press.
  */
 Backdrop.viewsUi.Checkboxifier.prototype.clickHandler = function (e) {
-  this.$button.mousedown();
-  this.$button.submit();
+  this.$button.trigger('mousedown');
+  this.$button.trigger('submit');
 };
 
 /**

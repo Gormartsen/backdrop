@@ -6,6 +6,10 @@
 
 /**
  * Implements hook_layout_context_info().
+ *
+ * @see node_layout_context_info().
+ * @see user_layout_context_info().
+ * @see taxonomy_layout_context_info().
  */
 function layout_layout_context_info() {
   $info['node'] = array(
@@ -26,7 +30,7 @@ function layout_layout_context_info() {
     'load callback' => 'node_load',
   );
   $info['user'] = array(
-    'title' => t('User'),
+    'title' => t('User account'),
     'class' => 'EntityLayoutContext',
     'menu paths' => array(
       'user/%user',
@@ -45,6 +49,16 @@ function layout_layout_context_info() {
     'path placeholder' => '%term',
     'load callback' => 'taxonomy_term_load',
   );
+  $info['file'] = array(
+    'title' => t('File'),
+    'class' => 'EntityLayoutContext',
+    'menu paths' => array(
+      'file/%file',
+      'file/%file/view',
+    ),
+    'path placeholder' => '%file',
+    'load callback' => 'file_load',
+  );
   $info['overrides_path'] = array(
     'title' => t('Overrides path'),
     'description' => t('Layout overrides existing path provided by another module.'),
@@ -59,6 +73,21 @@ function layout_layout_context_info() {
     'path placeholder' => NULL,
     'menu paths' => array(),
   );
+  return $info;
+}
+
+/**
+ * Implements hook_layout_relationship_info().
+ */
+function layout_layout_relationship_info() {
+  $info['author_from_node'] = array(
+    'title' => t('Author of content'),
+    'class' => 'LayoutRelationshipAuthorFromNode',
+    'context' => 'node',
+    'context_label' => t('Content'),
+    'description' => t('Creates a user account context based on the author of content.'),
+  );
+
   return $info;
 }
 
@@ -89,9 +118,10 @@ function layout_layout_access_info() {
 
     // Create a entity id key such as "nid" or "cid".
     $key = $entity_type . '_' . $entity_info['entity keys']['id'];
+    $key_label = strtoupper($entity_info['entity keys']['id']);
     $info[$key] = array(
-      'title' => t('@entity: @entity_id_key', array('@entity' => $entity_info['label'], '@entity_id_key' => $key)),
-      'description' => t('Control access by @entity_type @entity_id_key.', array('@entity_type' => $entity_type, '@entity_id_key' => $key)),
+      'title' => t('@entity: @entity_id_key', array('@entity' => $entity_info['label'], '@entity_id_key' => $key_label)),
+      'description' => t('Control access by @entity_type @entity_id_key.', array('@entity_type' => $entity_type, '@entity_id_key' => $key_label)),
       'entity_type' => $entity_type,
       'class' => 'EntityIDLayoutAccess',
       'required contexts' => array(
@@ -101,8 +131,8 @@ function layout_layout_access_info() {
   }
 
   $info['front'] = array(
-    'title' => t('Front page'),
-    'description' => t('Is this the front page.'),
+    'title' => t('Home page'),
+    'description' => t('Is this the home page.'),
     'class' => 'FrontLayoutAccess',
   );
   $info['language'] = array(
@@ -111,7 +141,7 @@ function layout_layout_access_info() {
     'class' => 'LanguageLayoutAccess',
   );
   $info['user_permission'] = array(
-    'title' => t('User: Permission'),
+    'title' => t('User account: Permission'),
     'description' => t('Control access by permission string.'),
     'class' => 'UserPermissionLayoutAccess',
     'required contexts' => array(
@@ -119,7 +149,7 @@ function layout_layout_access_info() {
     ),
   );
   $info['user_role'] = array(
-    'title' => t('User: Role'),
+    'title' => t('User account: Role'),
     'description' => t('Control access by role.'),
     'class' => 'UserRoleLayoutAccess',
     // Contexts are specified as context key => context type. The key will be
@@ -130,13 +160,35 @@ function layout_layout_access_info() {
     ),
     // Optional if needing to clarify between contexts of the same type.
     'required contexts labels' => array(
-      'user' => t('User'),
+      'user' => t('User account'),
+    ),
+  );
+  $info['user_compare'] = array(
+    'title' => t('User account: Compare'),
+    'description' => t('Compare two user accounts. For example: logged-in vs profile being viewed.'),
+    'class' => 'UserCompareLayoutAccess',
+    // Contexts are specified as context key => context type. The key will be
+    // used in the $contexts array passed to the access class methods. The type
+    // references a context provided by hook_layout_context_info().
+    'required contexts' => array(
+      'user1' => 'user',
+      'user2' => 'user',
+    ),
+    // Optional if needing to clarify between contexts of the same type.
+    'required contexts labels' => array(
+      'user1' => t('The logged-in user account'),
+      'user2' => t('User account to compare to the logged-in user account'),
     ),
   );
   $info['path'] = array(
     'title' => t('URL path'),
     'description' => t('Control access by the current path.'),
     'class' => 'PathLayoutAccess',
+  );
+  $info['http_response_code'] = array(
+    'title' => t('Server response'),
+    'description' => t('Control access by the HTTP response status code returned by the server.'),
+    'class' => 'HttpResponseCodeLayoutAccess',
   );
   return $info;
 }
@@ -153,6 +205,9 @@ function layout_layout_renderer_info() {
   );
   $info['standard'] = array(
     'class' => 'LayoutRendererStandard',
+  );
+  $info['flexible'] = array(
+    'class' => 'LayoutRendererFlexible',
   );
   return $info;
 }

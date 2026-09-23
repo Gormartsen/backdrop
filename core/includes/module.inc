@@ -379,15 +379,24 @@ function module_load_all_includes($type, $name = NULL) {
  * - Invoke hook_modules_installed().
  * - Invoke hook_modules_enabled().
  *
- * @param string[] $module_list
+ * @param array $module_list
  *   An array of module names.
  * @param bool $enable_dependencies
- *   If TRUE, dependencies will automatically be added and enabled in the
- *   correct order. This incurs a significant performance cost, so use FALSE
- *   if you know $module_list is already complete and in the correct order.
+ *   (optional)
+ *   - If TRUE, dependency-checking is enabled. This means that any modules the
+ *     passed-in module(s) depend on will be automatically added and enabled in
+ *     the correct order. If any dependencies are unavailable, the passed-in
+ *     module(s) will not be enabled. Note that dependency-checking incurs a
+ *     significant performance cost.
+ *   - If FALSE, dependency-checking is bypassed and the passed-in module(s)
+ *     will be enabled regardless of whether or not their dependencies are
+ *     available or listed in the correct order. This could lead to problems,
+ *     and so should only be used if you know $module_list is already complete
+ *     and in the correct order.
  *
  * @return bool
- *   FALSE if one or more dependencies are missing, TRUE otherwise.
+ *   Returns FALSE if $enable_dependencies is TRUE and one or more dependencies
+ *   are missing. Otherwise returns TRUE.
  *
  * @see hook_install()
  * @see hook_enable()
@@ -403,7 +412,11 @@ function module_enable($module_list, $enable_dependencies = TRUE) {
     // Create an associative array with weights as values.
     $module_list = array_flip(array_values($module_list));
 
-    while (list($module) = each($module_list)) {
+    // The array is iterated over manually (instead of using a foreach) because
+    // modules may be added to the list within the loop and we need to process
+    // them.
+    while ($module = key($module_list)) {
+      next($module_list);
       if (!isset($module_data[$module])) {
         // This module is not found in the filesystem, abort.
         return FALSE;
@@ -470,6 +483,8 @@ function module_enable($module_list, $enable_dependencies = TRUE) {
       backdrop_get_schema(NULL, TRUE);
       // Update the theme registry to include it.
       backdrop_theme_rebuild();
+      // Refresh Entity info static cache.
+      entity_info_cache_clear();
 
       // Allow modules to react prior to the installation of a module.
       module_invoke_all('modules_preinstall', array($module));
@@ -508,6 +523,14 @@ function module_enable($module_list, $enable_dependencies = TRUE) {
 
       // Record the fact that it was enabled.
       $modules_enabled[] = $module;
+
+      // Update the status of the module in the system.extensions config.
+      $config = config('system.extensions');
+      $modules_in_config = $config->get('modules') != NULL ? $config->get('modules') : array();
+      $modules_in_config[$module] = TRUE;
+      $config->set('modules', $modules_in_config);
+      $config->save();
+
       watchdog('system', '%module module enabled.', array('%module' => $module), WATCHDOG_INFO);
     }
   }
@@ -531,9 +554,15 @@ function module_enable($module_list, $enable_dependencies = TRUE) {
  * @param array $module_list
  *   An array of module names.
  * @param bool $disable_dependents
- *   If TRUE, dependent modules will automatically be added and disabled in the
- *   correct order. This incurs a significant performance cost, so use FALSE
- *   if you know $module_list is already complete and in the correct order.
+ *   (optional)
+ *   - If TRUE, dependency-checking is enabled. This means that any modules
+ *     dependent on the passed-in module(s) will be automatically added and
+ *     disabled in the correct order. Note that dependency-checking incurs a
+ *     significant performance cost.
+ *   - If FALSE, dependency-checking is bypassed and dependent modules will not
+ *     be automatically added or disabled. This could lead to problems, and so
+ *     should only be used if you know $module_list is already complete and in
+ *     the correct order.
  *
  * @see backdrop_uninstall_modules()
  * @see module_enable()
@@ -546,7 +575,11 @@ function module_disable($module_list, $disable_dependents = TRUE) {
     $module_list = array_flip(array_values($module_list));
 
     $profile = backdrop_get_profile();
-    while (list($module) = each($module_list)) {
+    // The array is iterated over manually (instead of using a foreach) because
+    // modules may be added to the list within the loop and we need to process
+    // them.
+    while ($module = key($module_list)) {
+      next($module_list);
       if (!isset($module_data[$module]) || !$module_data[$module]->status) {
         // This module doesn't exist or is already disabled, skip it.
         unset($module_list[$module]);
@@ -568,6 +601,9 @@ function module_disable($module_list, $disable_dependents = TRUE) {
     $module_list = array_keys($module_list);
   }
 
+  // Refresh Entity info static cache.
+  entity_info_cache_clear();
+
   $invoke_modules = array();
 
   foreach ($module_list as $module) {
@@ -580,6 +616,14 @@ function module_disable($module_list, $disable_dependents = TRUE) {
         ->condition('name', $module)
         ->execute();
       $invoke_modules[] = $module;
+
+      // Update the status of the module in the system.extensions config.
+      $config = config('system.extensions');
+      $modules_in_config = $config->get('modules') != NULL ? $config->get('modules') : array();
+      $modules_in_config[$module] = FALSE;
+      $config->set('modules', $modules_in_config);
+      $config->save();
+
       watchdog('system', '%module module disabled.', array('%module' => $module), WATCHDOG_INFO);
     }
   }
@@ -605,20 +649,20 @@ function module_disable($module_list, $disable_dependents = TRUE) {
  * @{
  * Allow modules to interact with the Backdrop core.
  *
- * Backdrop's module system is based on the concept of "hooks". A hook is a PHP
- * function that is named foo_bar(), where "foo" is the name of the module
+ * Backdrop's module system is based on the concept of "hooks". A hook is simply
+ * a PHP function that is named foo_bar(), where "foo" is the name of the module
  * (whose filename is thus foo.module) and "bar" is the name of the hook. Each
  * hook has a defined set of parameters and a specified result type.
  *
- * To extend Backdrop, a module need simply implement a hook. When Backdrop wishes
+ * To extend Backdrop, a module needs to implement a hook. When Backdrop wishes
  * to allow intervention from modules, it determines which modules implement a
  * hook and calls that hook in all enabled modules that implement it.
  *
  * The available hooks to implement are explained here in the Hooks section of
  * the developer documentation. The string "hook" is used as a placeholder for
  * the module name in the hook definitions. For example, if the module file is
- * called example.module, then hook_help() as implemented by that module would
- * be defined as example_help().
+ * called example.module, then hook_menu() as implemented by that module would
+ * be defined as example_menu().
  *
  * The example functions included are not part of the Backdrop core, they are
  * just models that you can modify. Only the hooks implemented within modules
@@ -900,8 +944,9 @@ function module_implements_write_cache() {
  * @param ...
  *   Arguments to pass to the hook implementation.
  *
- * @return
- *   The return value of the hook implementation.
+ * @return mixed|NULL
+ *   The return value of the hook implementation. NULL if the module does not
+ *   implement the given hook.
  *
  * @see backdrop_alter()
  */
@@ -912,6 +957,8 @@ function module_invoke($module, $hook) {
   if (module_hook($module, $hook)) {
     return call_user_func_array($module . '_' . $hook, $args);
   }
+
+  return NULL;
 }
 
 /**
@@ -927,7 +974,9 @@ function module_invoke($module, $hook) {
  *
  * @return
  *   An array of return values of the hook implementations. If modules return
- *   arrays from their implementations, those are merged into one array.
+ *   arrays from their implementations, those are merged into one array
+ *   recursively. Note: integer keys in arrays will be lost, as the merge is
+ *   done using array_merge_recursive().
  *
  * @see backdrop_alter()
  */
@@ -972,6 +1021,16 @@ function backdrop_merged_modules() {
     'pathauto', // Backdrop 1.1.0.
     'transliteration', // Backdrop 1.3.0.
     'project_browser', // Backdrop 1.4.0.
+    'entity_view_mode', // Backdrop 1.6.0.
+    'options_element', // Backdrop 1.12.0.
+    'field_formatter_settings', // Backdrop 1.13.0.
+    'imagecache_token', // Backdrop 1.17.0.
+    'fast_token_browser', // Backdrop 1.30.0.
+    'book_cache', // Backdrop 1.32.0.
+    'views_ajax_history', // Backdrop 1.34.0.
+    'file_entity_inline', // Backdrop 1.34.0.
+    'html5_upload', // Backdrop 1.34.0.
+    'editorimgdimensionsync', // Backdrop 1.35.0.
   );
 }
 
@@ -1012,7 +1071,7 @@ function backdrop_required_modules() {
  *     'unalterable' => $unalterable,
  *     'foo' => 'bar',
  *   );
- *   backdrop_alter('mymodule_data', $alterable1, $alterable2, $context);
+ *   backdrop_alter('my_module_data', $alterable1, $alterable2, $context);
  * @endcode
  *
  * Note that objects are always passed by reference in PHP5. If it is absolutely
@@ -1022,7 +1081,7 @@ function backdrop_required_modules() {
  *   $context = array(
  *     'unalterable_object' => clone $object,
  *   );
- *   backdrop_alter('mymodule_data', $data, $context);
+ *   backdrop_alter('my_module_data', $data, $context);
  * @endcode
  *
  * @param $type
@@ -1139,6 +1198,9 @@ function backdrop_alter($type, &$data, &$context1 = NULL, &$context2 = NULL, &$c
     if (isset($theme)) {
       $theme_keys = array();
       foreach ($base_theme_info as $base) {
+        if (empty($base)) {
+          continue;
+        }
         $theme_keys[] = $base->name;
       }
       $theme_keys[] = $theme;
@@ -1162,4 +1224,23 @@ function backdrop_alter($type, &$data, &$context1 = NULL, &$context2 = NULL, &$c
   foreach ($functions[$cid] as $function) {
     $function($data, $context1, $context2, $context3);
   }
+}
+
+/**
+ * Set the weight of a module in the 'system' table, thereby determining the
+ * order in which its hooks will be executed in relation to other modules.
+ *
+ * @param string $module
+ *   The name of the module (without the .module extension).
+ * @param integer $weight
+ *   The weight to set, as an integer.
+ *
+ * @since 1.17.2 Function added.
+ */
+function module_set_weight($module, $weight) {
+  db_update('system')
+    ->fields(array('weight' => $weight))
+    ->condition('type', 'module')
+    ->condition('name', $module)
+    ->execute();
 }

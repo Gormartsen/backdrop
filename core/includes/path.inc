@@ -1,8 +1,7 @@
 <?php
-
 /**
  * @file
- * Functions to handle paths in Backdrop, including path aliasing.
+ * Functions to handle paths in Backdrop, including URL aliasing.
  *
  * These functions are not loaded for cached pages, but modules that need
  * to use them in hook_boot() or hook exit() can make them available, by
@@ -30,7 +29,7 @@ function backdrop_path_initialize() {
  *   One of the following values:
  *   - wipe: delete the alias cache.
  *   - alias: return an alias for a given Backdrop system path (if one exists).
- *   - source: return the Backdrop system URL for a path alias (if one exists).
+ *   - source: return the Backdrop system path for a URL alias (if one exists).
  * @param $path
  *   The path to investigate for corresponding aliases or system URLs.
  * @param $langcode
@@ -55,7 +54,7 @@ function backdrop_lookup_path($action, $path = '', $langcode = NULL) {
     $cache = array(
       'map' => array(),
       'no_source' => array(),
-      'whitelist' => NULL,
+      'allowlist' => NULL,
       'system_paths' => array(),
       'no_aliases' => array(),
       'first_call' => TRUE,
@@ -64,8 +63,8 @@ function backdrop_lookup_path($action, $path = '', $langcode = NULL) {
 
   // If no language is explicitly specified we default to the current URL
   // language. If we used a language different from the one conveyed by the
-  // requested URL, we might end up being unable to check if there is a path
-  // alias matching the URL path.
+  // requested URL, we might end up being unable to check if there is a URL
+  // alias matching the system path.
   $langcode = $langcode ? $langcode : $language_url->langcode;
 
   if ($action == 'wipe') {
@@ -142,7 +141,6 @@ function backdrop_lookup_path($action, $path = '', $langcode = NULL) {
     // isn't a path that has this alias
     elseif ($action == 'source' && !isset($cache['no_source'][$langcode][$path])) {
       // Look for the value $path within the cached $map
-      $source = FALSE;
       if (!isset($cache['map'][$langcode]) || !($source = array_search($path, $cache['map'][$langcode]))) {
         $args = array(
           ':alias' => $path,
@@ -230,10 +228,10 @@ function backdrop_get_path_alias($path = NULL, $langcode = NULL) {
 }
 
 /**
- * Given a path alias, return the internal path it represents.
+ * Given a URL alias, return the internal path it represents.
  *
  * @param $path
- *   A Backdrop path alias.
+ *   A Backdrop URL alias.
  * @param $langcode
  *   An optional language code to look up the path in.
  *
@@ -244,7 +242,7 @@ function backdrop_get_path_alias($path = NULL, $langcode = NULL) {
 function backdrop_get_normal_path($path, $langcode = NULL) {
   $original_path = $path;
 
-  // Lookup the path alias first.
+  // Lookup the URL alias first.
   if ($source = backdrop_lookup_path('source', $path, $langcode)) {
     $path = $source;
   }
@@ -261,10 +259,10 @@ function backdrop_get_normal_path($path, $langcode = NULL) {
 }
 
 /**
- * Check if the current page is the front page.
+ * Check if the current page is the home page.
  *
  * @return
- *   Boolean value: TRUE if the current page is the front page; FALSE if otherwise.
+ *   Boolean value: TRUE if the current page is the home page; FALSE if otherwise.
  */
 function backdrop_is_front_page() {
   // Use the advanced backdrop_static() pattern, since this is called very often.
@@ -313,7 +311,7 @@ function backdrop_match_path($path, $patterns) {
     $patterns_quoted = preg_quote($patterns, '/');
     $regexps[$patterns] = '/^(' . preg_replace($to_replace, $replacements, $patterns_quoted) . ')$/';
   }
-  return (bool)preg_match($regexps[$patterns], $path);
+  return (bool) preg_match($regexps[$patterns], (string) $path);
 }
 
 /**
@@ -321,10 +319,10 @@ function backdrop_match_path($path, $patterns) {
  *
  * Examples:
  * - http://example.com/node/306 returns "node/306".
- * - http://example.com/backdropfolder/node/306 returns "node/306" while
- *   base_path() returns "/backdropfolder/".
- * - http://example.com/path/alias (which is a path alias for node/306) returns
- *   "node/306" as opposed to the path alias.
+ * - http://example.com/backdrop_folder/node/306 returns "node/306" while
+ *   base_path() returns "/backdrop_folder/".
+ * - http://example.com/url-alias (which is a URL alias for node/306) returns
+ *   "node/306" as opposed to the URL alias.
  *
  * This function is not available in hook_boot() so use $_GET['q'] instead.
  * However, be careful when doing that because in the case of Example #3
@@ -338,7 +336,9 @@ function backdrop_match_path($path, $patterns) {
  * @see request_path()
  */
 function current_path() {
-  return $_GET['q'];
+  if (isset($_GET['q'])) {
+    return $_GET['q'];
+  }
 }
 
 /**
@@ -353,7 +353,7 @@ function current_path() {
  *   following keys:
  *   - source: The internal system path.
  *   - alias: The URL alias.
- *   - pid: Unique path alias identifier.
+ *   - pid: Unique URL alias identifier.
  *   - langcode: The language code of the alias.
  *   - auto: Boolean indicating if this alias was created from a pattern.
  */
@@ -421,13 +421,13 @@ function path_load_multiple(array $keys, $field, $langcode) {
 }
 
 /**
- * Save a path alias to the database.
+ * Save a URL alias to the database.
  *
  * @param $path
  *   An associative array containing the following keys:
  *   - source: The internal system path.
  *   - alias: The URL alias.
- *   - pid: (optional) Unique path alias identifier.
+ *   - pid: (optional) Unique URL alias identifier.
  *   - langcode: (optional) The language code of the alias.
  */
 function path_save(&$path) {
@@ -480,10 +480,10 @@ function path_delete($criteria) {
  * both administrative and non-administrative patterns, it is considered
  * non-administrative.
  *
- * @param $path
+ * @param string|null $path
  *   A Backdrop path.
  *
- * @return
+ * @return bool
  *   TRUE if the path is administrative, FALSE otherwise.
  *
  * @see path_get_admin_paths()
@@ -492,6 +492,10 @@ function path_delete($criteria) {
  */
 function path_is_admin($path) {
   $path_map = &backdrop_static(__FUNCTION__);
+  // This function is supposed to also handle NULL as param.
+  if (!$path) {
+    return FALSE;
+  }
   if (!isset($path_map['admin'][$path])) {
     $patterns = path_get_admin_paths();
     $path_map['admin'][$path] = backdrop_match_path($path, $patterns['admin']);

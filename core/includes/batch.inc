@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Batch processing API for processes to run in multiple HTTP requests.
@@ -17,11 +16,11 @@
 /**
  * Loads a batch from the database.
  *
- * @param $id
+ * @param string $id
  *   The ID of the batch to load. When a progressive batch is being processed,
  *   the relevant ID is found in $_REQUEST['id'].
  *
- * @return
+ * @return array|false
  *   An array representing the batch, or FALSE if no batch was found.
  */
 function batch_load($id) {
@@ -38,7 +37,7 @@ function batch_load($id) {
 /**
  * Renders the batch processing page based on the current state of the batch.
  *
- * @see _batch_shutdown()
+ * @return string|null|false
  */
 function _batch_page() {
   $batch = &batch_get();
@@ -56,9 +55,6 @@ function _batch_page() {
     }
   }
 
-  // Register database update for the end of processing.
-  backdrop_register_shutdown_function('_batch_shutdown');
-
   // Add batch-specific CSS.
   foreach ($batch['sets'] as $batch_set) {
     if (isset($batch_set['css'])) {
@@ -68,7 +64,7 @@ function _batch_page() {
     }
   }
 
-  // Surpress messages during batch requests.
+  // Suppress messages during batch requests.
   backdrop_show_messages(FALSE);
 
   $op = isset($_REQUEST['op']) ? $_REQUEST['op'] : '';
@@ -93,9 +89,15 @@ function _batch_page() {
     case 'finished':
       // Show messages on the completion page.
       backdrop_show_messages(TRUE);
-      $output = _batch_finished();
+      _batch_finished();
       break;
   }
+
+  // Save updated data for the next page request.
+  db_update('batch')
+    ->fields(array('batch' => serialize($batch)))
+    ->condition('bid', $batch['id'])
+    ->execute();
 
   return $output;
 }
@@ -110,11 +112,17 @@ function _batch_do() {
   // Perform actual processing.
   list($percentage, $message) = _batch_process();
 
-  backdrop_json_output(array('status' => TRUE, 'percentage' => $percentage, 'message' => $message));
+  backdrop_json_output(array(
+    'status' => TRUE,
+    'percentage' => $percentage,
+    'message' => $message,
+  ));
 }
 
 /**
  * Outputs a batch processing page.
+ *
+ * @return string
  *
  * @see _batch_process()
  */
@@ -134,13 +142,15 @@ function _batch_progress_page() {
   }
   else {
     // This is one of the later requests; do some processing first.
-
     // Error handling: if PHP dies due to a fatal error (e.g. a nonexistent
     // function), it will output whatever is in the output buffer, followed by
     // the error message.
     ob_start();
     $fallback = $current_set['error_message'] . '<br />' . $batch['error_message'];
-    $fallback = theme('maintenance_page', array('content' => $fallback, 'show_messages' => FALSE));
+    $fallback = theme('maintenance_page', array(
+      'content' => $fallback,
+      'show_messages' => FALSE,
+    ));
 
     // We strip the end of the page using a marker in the template, so any
     // additional HTML output by PHP shows up inside the page rather than below
@@ -150,7 +160,7 @@ function _batch_progress_page() {
     print $fallback;
 
     // Perform actual processing.
-    list($percentage, $message) = _batch_process($batch);
+    list($percentage, $message) = _batch_process();
     if ($percentage == 100) {
       $new_op = 'finished';
     }
@@ -188,7 +198,10 @@ function _batch_progress_page() {
   backdrop_add_js($js_setting, 'setting');
   backdrop_add_library('system', 'backdrop.batch');
 
-  return theme('progress_bar', array('percent' => $percentage, 'message' => $message));
+  return theme('progress_bar', array(
+    'percent' => $percentage,
+    'message' => $message,
+  ));
 }
 
 /**
@@ -199,12 +212,14 @@ function _batch_progress_page() {
  * exceeded. It will continue with the next operation of the same batch set in
  * the next request.
  *
- * @return
+ * @return array
  *   An array containing a completion value (in percent) and a status message.
  */
 function _batch_process() {
   $batch       = &batch_get();
   $current_set = &_batch_current_set();
+  $old_set     = array();
+
   // Indicate that this batch set needs to be initialized.
   $set_changed = TRUE;
 
@@ -221,6 +236,7 @@ function _batch_process() {
   }
 
   $queue = _batch_queue($current_set);
+  $finished = 0;
 
   while (!$current_set['success']) {
     // If this is the first time we iterate this batch set in the current
@@ -285,7 +301,6 @@ function _batch_process() {
 
   if ($batch['progressive']) {
     // Gather progress information.
-
     // Reporting 100% progress will cause the whole batch to be considered
     // processed. If processing was paused right after moving to a new set,
     // we have to use the info from the new (unprocessed) set.
@@ -329,22 +344,23 @@ function _batch_process() {
   }
   else {
     // If we are not in progressive mode, the entire batch has been processed.
-    return _batch_finished();
+    _batch_finished();
+    return array('100', '');
   }
 }
 
 /**
  * Formats the percent completion for a batch set.
  *
- * @param $total
+ * @param int $total
  *   The total number of operations.
- * @param $current
+ * @param int|float $current
  *   The number of the current operation. This may be a floating point number
  *   rather than an integer in the case of a multi-step operation that is not
  *   yet complete; in that case, the fractional part of $current represents the
  *   fraction of the operation that has been completed.
  *
- * @return
+ * @return string
  *   The properly formatted percentage, as a string. We output percentages
  *   using the correct number of decimal places so that we never print "100%"
  *   until we are finished, but we also never print more decimal places than
@@ -378,6 +394,8 @@ function _batch_api_percentage($total, $current) {
 
 /**
  * Returns the batch set being currently processed.
+ *
+ * @return array
  */
 function &_batch_current_set() {
   $batch = &batch_get();
@@ -391,8 +409,8 @@ function &_batch_current_set() {
  * process and execute its form submit handler (if defined), which may add
  * further sets to this batch.
  *
- * @return
- *   TRUE if a subsequent set was found in the batch.
+ * @return bool
+ *   TRUE if a subsequent set was found in the batch, FALSE if not found.
  */
 function _batch_next_set() {
   $batch = &batch_get();
@@ -406,6 +424,7 @@ function _batch_next_set() {
     }
     return TRUE;
   }
+  return FALSE;
 }
 
 /**
@@ -442,17 +461,16 @@ function _batch_finished() {
         $queue->deleteQueue();
       }
     }
+    // Clean-up the session. Not needed for CLI updates.
+    if (isset($_SESSION)) {
+      unset($_SESSION['batches'][$batch['id']]);
+      if (empty($_SESSION['batches'])) {
+        unset($_SESSION['batches']);
+      }
+    }
   }
   $_batch = $batch;
   $batch = NULL;
-
-  // Clean-up the session. Not needed for CLI updates.
-  if (isset($_SESSION)) {
-    unset($_SESSION['batches'][$batch['id']]);
-    if (empty($_SESSION['batches'])) {
-      unset($_SESSION['batches']);
-    }
-  }
 
   // Redirect if needed.
   if ($_batch['progressive']) {
@@ -482,22 +500,10 @@ function _batch_finished() {
     }
     $function = $_batch['redirect_callback'];
     if (function_exists($function)) {
-      $function($_batch['source_url'], array('query' => array('op' => 'finish', 'id' => $_batch['id'])));
+      $function($_batch['source_url'], array('query' => array(
+        'op' => 'finish',
+        'id' => $_batch['id'],
+      )));
     }
-  }
-}
-
-/**
- * Shutdown function: Stores the current batch data for the next request.
- *
- * @see _batch_page()
- * @see backdrop_register_shutdown_function()
- */
-function _batch_shutdown() {
-  if ($batch = batch_get()) {
-    db_update('batch')
-      ->fields(array('batch' => serialize($batch)))
-      ->condition('bid', $batch['id'])
-      ->execute();
   }
 }

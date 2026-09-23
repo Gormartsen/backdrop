@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Definition of views_plugin_exposed_form_input_required.
@@ -29,7 +28,6 @@ class views_plugin_exposed_form_input_required extends views_plugin_exposed_form
       '#description' => t('Text to display instead of results until the user selects and applies an exposed filter.'),
       '#default_value' => $this->options['text_input_required'],
       '#format' => isset($this->options['text_input_required_format']) ? $this->options['text_input_required_format'] : filter_default_format(),
-      '#wysiwyg' => FALSE,
     );
   }
 

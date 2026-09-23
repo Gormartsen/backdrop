@@ -10,10 +10,6 @@
   margin: 0;
 }
 
-.views-admin a:hover {
-  text-decoration: none;
-}
-
 /* @end */
 
 /* @group Layout */
@@ -31,12 +27,12 @@
 
 /* @group Icons */
 
-.views-admin .icon {
+.views-admin .icon:not(svg) {
   height: 16px;
   width: 16px;
 }
 
-.views-admin .icon,
+.views-admin .icon:not(svg),
 .views-admin .icon-text {
   background-attachment: scroll;
   background-image: url("../images/sprites.png");
@@ -47,39 +43,18 @@
 .views-admin a.icon {
   background-image:
     url("../images/sprites.png"),
-    -moz-linear-gradient(
+    linear-gradient(
       -90deg,
-      #ffffff 0px,
-      #e8e8e8 100%);
-  background-image:
-    url("../images/sprites.png"),
-    -webkit-gradient(
-      linear,
-      left top,
-      left bottom,
-      color-stop(0.0, rgba(255, 255, 255, 1.0)),
-      color-stop(1.0, rgba(232, 232, 232, 1.0))
-    );
-  background-image:
-    url("../images/sprites.png"),
-    -webkit-linear-gradient(
-      -90deg,
-      #ffffff 0px,
+      #fff 0px,
       #e8e8e8 100%);
   background-repeat: no-repeat, repeat-y;
   border: 1px solid #dddddd;
-  -moz-border-radius: 4px;
-  -webkit-border-radius: 4px;
   border-radius: 4px;
-  -moz-box-shadow: 0 0 0 rgba(0,0,0,0.3333) inset;
-  -webkit-box-shadow: 0 0 0 rgba(0,0,0,0.3333) inset;
   box-shadow: 0 0 0 rgba(0,0,0,0.3333) inset;
 }
 
 .views-admin a.icon:hover {
   border-color: #d0d0d0;
-  -moz-box-shadow: 0 0 1px rgba(0,0,0,0.3333) inset;
-  -webkit-box-shadow: 0 0 1px rgba(0,0,0,0.3333) inset;
   box-shadow: 0 0 1px rgba(0,0,0,0.3333) inset;
 }
 
@@ -93,8 +68,8 @@
  */
 .views-admin span.icon {
   display: inline-block;
-  float: left;
   position: relative;
+  vertical-align: middle;
 }
 
 .views-admin .icon.compact {
@@ -255,6 +230,13 @@ input.form-radio {
   box-sizing: border-box;
 }
 
+#edit-page-style .views-ui-ajax-wrapper,
+#edit-page-style .views-ui-ajax-wrapper div,
+#edit-block-style .views-ui-ajax-wrapper,
+#edit-block-style .views-ui-ajax-wrapper div {
+  display: block;
+}
+
 @media (max-width: 600px) {
   .edit-page-style-wrapper div,
   .edit-page-style-wrapper label,
@@ -294,10 +276,6 @@ input.form-radio {
 .horizontal > * + * {
   margin-left: 9px; /* LTR */
   padding-left: 9px; /* LTR */
-}
-
-.views-ui-view-title {
-  font-weight: bold;
 }
 
 @media (max-width: 768px) {
@@ -356,8 +334,8 @@ input.form-radio {
 .views-admin h1.unit-title {
   font-size: 15px;
   line-height: 1.6154;
-  margin-bottom: 0;
-  margin-top: 18px;
+  margin: 0;
+  padding-top: 1.5em;
 }
 
 /* @end */
@@ -380,15 +358,28 @@ th.views-ui-name {
 }
 
 th.views-ui-description {
-  width: 40%;
+  width: 30%;
 }
 
-th.views-ui-path {
-  width: auto;
+th.views-ui-displays {
+  width: 25%;
+}
+
+th.views-ui-storage {
+  width: 15%;
 }
 
 th.views-ui-operations {
-  width: 10%;
+  width: 15%;
+}
+
+td.views-ui-displays ul {
+  margin: 0.25em 0 0.25em 0;
+}
+
+.views-ui-view-tag,
+.views-ui-view-storage {
+  margin-top: 3px;
 }
 
 /* @end */
@@ -486,6 +477,29 @@ td.group-title {
   padding-right: 10px;
 }
 
+#views-rearrange-filters {
+  border-top: 1px solid #ccc;
+}
+#views-rearrange-filters tr.even,
+#views-rearrange-filters tr.odd {
+  box-shadow: none;
+  border: 1px solid #ccc;
+  border-top: none;
+}
+#views-rearrange-filters tr.filter-group-operator-row {
+  border-bottom: 1px solid #ccc;
+}
+#views-rearrange-filters tr.views-group-title {
+  border-bottom: none;
+}
+#views-rearrange-filters td.group-operator {
+  border-right: 1px solid #ccc; /* LTR */
+  vertical-align: middle;
+}
+[dir="rtl"] #views-rearrange-filters td.group-operator {
+  border-left: 1px solid #ccc;
+}
+
 /* This keeps the collapsible fieldsets of options from crashing into the bottom
  * of the edit option columns. Because the edit option columns are floated, the collapsible
  * fieldsets need to be floated as well so that the margin above the fieldset interacts with
@@ -504,29 +518,9 @@ td.group-title {
 
 /* @group Attachments */
 
-.views-displays {
-  border: 1px solid #CCC;
-  padding-bottom: 36px;
-}
-
 .views-display-top {
-  background-color: #F9F9F9;
-  border-bottom: 1px solid #CCCCCC;
-  padding: 8px 8px 8px; /* LTR */
+  margin: .5em 0;
   position: relative;
-}
-
-.views-display-top .secondary {
-  margin-right: 18em;
-}
-
-.views-display-top .secondary > li {
-  margin-right: 6px;
-  padding-left: 0;
-}
-
-.views-display-top .secondary > li:last-child {
-  margin-right: 0;
 }
 
 #views-display-extra-actions li {
@@ -544,20 +538,19 @@ td.group-title {
  * The tabs that switch between sections
  */
 
-ul#views-display-menu-tabs li {
+#views-display-menu-tabs li {
   margin-bottom: 5px;
 }
 
-ul#views-display-menu-tabs li.add ul.action-list li{
+#views-display-menu-tabs li.add {
+  border: 1px solid #fff;
+}
+#views-display-menu-tabs li.add ul.action-list li {
   margin: 0;
 }
 
 .views-displays .secondary a {
-  border: 1px solid #cbcbcb;
-  display: inline-block;
-  font-size: small;
-  line-height: 1.3333;
-  padding: 3px 7px;
+  border: 2px solid inherit;
 }
 
 /**
@@ -566,7 +559,6 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 .views-displays ul.secondary li.active a.active.error,
 .views-displays .secondary a.error {
   border: 2px solid #ED541D;
-  padding: 1px 6px;
 }
 
 .views-displays .secondary a:focus {
@@ -575,11 +567,13 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 
 .views-displays .secondary a:hover,
 .views-displays .secondary .active a {
-  background-color: #666666;
-  color: #ffffff;
-  border-bottom-width: 1px;
+  background-color: #666;
+  color: #fff;
 }
 
+.views-displays .secondary .add > a {
+  border: 1px solid #cbcbcb;
+}
 .views-displays .secondary .open > a {
   background-color: #f1f1f1;
   border-bottom: 1px solid transparent;
@@ -595,7 +589,7 @@ ul#views-display-menu-tabs li.add ul.action-list li{
   border-color: #cbcbcb;
   border-style: solid;
   border-width: 0 1px;
-  padding: 2px 9px;
+  padding: 0;
 }
 
 .views-displays .secondary .action-list  li:first-child {
@@ -614,7 +608,12 @@ ul#views-display-menu-tabs li.add ul.action-list li{
   background: none repeat scroll 0 0 transparent;
   border: medium none;
   margin: 0;
-  padding: 0;
+  padding: 2px 9px;
+  width: 100%;
+  text-align: inherit;
+  color: inherit;
+  line-height: 1.5;
+  cursor: pointer;
 }
 
 .views-displays .secondary .action-list li:hover {
@@ -632,7 +631,8 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 }
 
 #edit-display-settings-top {
-  padding-bottom: 4px;
+  padding: 0.5em 0.5em;
+  background: #e9e8e8;
 }
 
 #edit-display-settings-content {
@@ -640,7 +640,8 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 }
 
 #edit-display-settings-main {
-  margin-top: 15px;
+  padding: 0.75em 0;
+  background: #fff;
 }
 
 /* @end */
@@ -681,7 +682,11 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 
 #views-ui-preview-form .arguments-preview,
 #views-ui-preview-form .form-type-textfield {
-  margin-left: 14px;
+  margin: 0 0 0 14px;
+}
+[dir="rtl"] #views-ui-preview-form .arguments-preview,
+[dir="rtl"] #views-ui-preview-form .form-type-textfield {
+  margin: 0 14px 0 0;
 }
 
 #views-ui-preview-form .form-type-textfield label {
@@ -704,24 +709,23 @@ ul#views-display-menu-tabs li.add ul.action-list li{
  */
 
 .views-ui-display-tab-bucket {
-  border: 1px solid #f3f3f3;
   line-height: 20px;
   margin: 0;
-  padding-top: 4px;
 }
 
 .views-ui-display-tab-bucket + .views-ui-display-tab-bucket {
   border-top: medium none;
 }
 
-.views-ui-display-tab-bucket > h3,
-.views-ui-display-tab-bucket > .views-display-setting {
-  padding: 2px 6px 4px;
+.views-ui-display-tab-bucket > h3 {
+  padding: .75em 1em;
 }
+
 
 .views-ui-display-tab-bucket h3 {
   font-size: small;
   margin: 0;
+  background-color: #f7f7f7;
 }
 
 .views-ui-display-tab-bucket .horizontal.actions {
@@ -750,11 +754,11 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 
 /* @group Attachment bucket overridden
  *
- * Applies a overriden(italics) font style to overridden buckets.
+ * Applies an overridden font style (italics) to overridden buckets.
  * The better way to implement this would be to add the overridden class
  * to the bucket header when the bucket is overridden and style it as a
  * generic icon classed element. For the moment, we'll style the bucket
- * header specifically with the overriden font style.
+ * header specifically with the overridden font style.
  */
 
 .views-ui-display-tab-setting.overridden,
@@ -779,9 +783,8 @@ ul#views-display-menu-tabs li.add ul.action-list li{
  */
 
 .views-ui-display-tab-bucket .views-display-setting {
-  color: #666666;
   font-size: 14px;
-  padding-bottom: 0.5em;
+  padding: .25em 1em;
 }
 
 .views-ui-display-tab-bucket .views-group-text {
@@ -805,22 +808,22 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 }
 
 .views-filterable-options .form-type-checkbox {
-  border: 1px solid #CCC;
-  padding: 5px 8px;
-  border-top: none;
+  border: none;
+  padding: 0;
 }
 
 .views-filterable-options {
-  border-top:  1px solid #CCC;
+  box-shadow: inset 0 1px 0 0 #eee;
+  border-radius: 4px;
 }
 
-.views-filterable-options .even .form-type-checkbox {
-  background-color: #F3F4EE;
-}
-
-.filterable-option .form-item {
+tr.views-filterable-option .form-item {
   margin-bottom: 0;
   margin-top: 0;
+}
+
+tr.views-filterable-option td.title {
+  font-weight: bold;
 }
 
 .views-filterable-options .form-type-checkbox .description {
@@ -973,14 +976,14 @@ ul#views-display-menu-tabs li.add ul.action-list li{
 /* @group Live preview elements */
 
 #views-preview-wrapper {
-  border: 1px solid #CCC;
-  border-top: 2px solid #CCC;
   padding-bottom: 12px;
-  padding-top: 12px;
+  padding-top: 20px;
+  margin: 0 0 1em;
+  border-top: 0.125em solid #CCC;
 }
 
 #views-ui-preview-form {
-  margin: 12px;
+  padding: 12px;
 }
 
 #views-live-preview {
@@ -1089,15 +1092,11 @@ ul#views-display-menu-tabs li.add ul.action-list li{
   background-image: url("../images/loading-small.gif");
   background-position: center center;
   background-repeat: no-repeat;
-  -webkit-border-radius: 7px;
-  -moz-border-radius: 7px;
   border-radius: 7px;
   height: 24px;
   opacity: .9;
   padding: 4px;
   width: 24px;
-  -webkit-box-sizing: 7px;
-  -moz-box-sizing: 7px;
   box-sizing: inherit;
 }
 
@@ -1114,29 +1113,26 @@ div.messages {
 /* @end */
 
 /* @group Drop buttons */
-
-.views-display-top .dropbutton-wrapper {
-  float: right;
+.js .views-displays .dropbutton-widget {
+  left: auto; /* LTR */
+  right: 0; /* LTR */
 }
-[dir="rtl"] .views-display-top .dropbutton-wrapper {
-  float: left;
+[dir="rtl"].js .views-displays .dropbutton-widget {
+  left: 0;
+  right: auto;
 }
-.views-display-top .dropbutton-wrapper a {
-  font-size: 12px;
-}
-
 .views-ui-display-tab-bucket .dropbutton-wrapper {
   position: absolute;
-  right: 5px; /* LTR */
-  top: 4px;
+  right: 12px; /* LTR */
+  top: 8px;
 }
 [dir="rtl"] .views-ui-display-tab-bucket .dropbutton-wrapper {
-  left: 5px;
+  left: 12px;
   right: auto;
 }
 .views-ui-display-tab-bucket .dropbutton-wrapper,
 .views-ui-display-tab-bucket .dropbutton-wrapper * {
-  font-size: 11px;
+  font-size: 12px;
 }
 .views-ui-display-tab-bucket .dropbutton li > * {
   padding: 0.2em 0.75em;
@@ -1149,43 +1145,22 @@ div.messages {
   background: none;
   border: medium;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 14px;
   padding-left: 12px;
   margin-bottom: 0;
   line-height: normal;
+  cursor: pointer;
 }
 .views-ui-display-tab-actions .dropbutton-wrapper input.form-submit {
-  text-align: right;
+  text-align: left;
   min-width: 100%;
   margin: 0;
   /* LTR */
-  -webkit-border-top-right-radius: 0;
-  -webkit-border-bottom-right-radius: 0;
-  -moz-border-radius-topright: 0;
-  -moz-border-radius-bottomright: 0;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  -webkit-border-top-left-radius: 0;
-  -webkit-border-bottom-left-radius: 5px;
-  -moz-border-radius-topleft: 0;
-  -moz-border-radius-bottomleft: 5px;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 5px;
+  border-radius: 0 0 0 5px;
 }
 [dir="rtl"] .views-ui-display-tab-actions .dropbutton-wrapper input.form-submit {
-  text-align: left;
-  -webkit-border-top-right-radius: 0;
-  -webkit-border-bottom-right-radius: 5px;
-  -moz-border-radius-topright: 0;
-  -moz-border-radius-bottomright: 5px;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 5px;
-  -webkit-border-top-left-radius: 0;
-  -webkit-border-bottom-left-radius: 0;
-  -moz-border-radius-topleft: 0;
-  -moz-border-radius-bottomleft: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  text-align: right;
+  border-radius: 0 0 5px 0;
 }
 
 /* @end */
@@ -1196,12 +1171,12 @@ div.messages {
   outline: medium none;
 }
 
-#views-live-preview div.contextual-links-wrapper {
+#views-live-preview .contextual-links-wrapper {
   right: auto;
   top: auto;
 }
 
-html.js #views-live-preview div.contextual-links-wrapper {
+html.js #views-live-preview .contextual-links-wrapper {
   display: inline;
   right: auto;
   left: auto;
@@ -1212,18 +1187,18 @@ html.js #views-live-preview div.contextual-links-wrapper {
   display: block;
 }
 
-#views-live-preview div.contextual-links-wrapper ul.contextual-links {
+#views-live-preview .contextual-links-wrapper .contextual-links {
   min-width: 10em;
   right: auto;
   border-radius: 0 4px 4px 4px;
 }
-[dir="rtl"] #views-live-preview div.contextual-links-wrapper ul.contextual-links {
+[dir="rtl"] #views-live-preview .contextual-links-wrapper .contextual-links {
   left: auto;
   right: 0;
   border-radius: 4px 0 4px 4px;
 }
 
-#views-live-preview ul.contextual-links li span {
+#views-live-preview .contextual-links li span {
   font-weight: bold;
   margin: 0.25em 0;
   padding: 0.5em 1em 0.25em 0.5em;
@@ -1233,3 +1208,8 @@ html.js #views-live-preview div.contextual-links-wrapper {
 }
 
 /* @end */
+
+
+#views-ajax-popup {
+  padding: 0 0 1.25em;
+}

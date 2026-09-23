@@ -18,10 +18,10 @@
  * During node operations (create, update, view, delete, etc.), there are
  * several sets of hooks that get invoked to allow modules to modify the base
  * node operation:
- * - Node-type-specific hooks: When defining a node type, hook_node_info()
+ * - Node-type-specific hooks: When defining a node type, node_type_save()
  *   returns a 'base' component. Node-type-specific hooks are named
- *   base_hookname() instead of mymodule_hookname() (in a module called
- *   'mymodule' for example). Only the node type's corresponding implementation
+ *   base_hookname() instead of my_module_hookname() (in a module called
+ *   'my_module' for example). Only the node type's corresponding implementation
  *   is invoked. For example, book_node_info() in book.module defines the base
  *   for the 'book' node type as 'book'. So when a book node is created,
  *   hook_insert() is invoked on book_insert() only. Hooks that are
@@ -530,8 +530,8 @@ function hook_node_load($nodes, $types) {
  *
  * Note that not all modules will want to influence access on all node types. If
  * your module does not want to actively grant or block access, return
- * NODE_ACCESS_IGNORE or simply return nothing. Blindly returning FALSE will
- * break other node access modules.
+ * NODE_ACCESS_IGNORE or return nothing. Blindly returning FALSE will break
+ * other node access modules.
  *
  * Also note that this function isn't called for node listings (e.g., RSS feeds,
  * the default home page at path 'node', a recent content block, etc.) See
@@ -543,9 +543,9 @@ function hook_node_load($nodes, $types) {
  * @param string $op
  *   The operation to be performed. Possible values:
  *   - "create"
- *   - "delete"
- *   - "update"
  *   - "view"
+ *   - "update"
+ *   - "delete"
  * @param object $account
  *   The user object to perform the access check operation on.
  *
@@ -613,7 +613,7 @@ function hook_node_prepare(Node $node) {
  *   Extra information to be displayed with search result. This information
  *   should be presented as an associative array. It will be concatenated with
  *   the post information (last updated, author) in the default search result
- *   theming.
+ *   markup.
  *
  * @ingroup node_api_hooks
  */
@@ -731,8 +731,8 @@ function hook_node_validate(Node $node, $form, &$form_state) {
  * This hook is invoked when a node form is submitted with the "Save" button,
  * after form values have been copied to the form state's node object, but
  * before the node is saved. It is a chance for modules to adjust the node's
- * properties from what they are simply after a copy from $form_state['values'].
- * This hook is intended for adjusting non-field-related properties. See
+ * properties from what they are after a copy from $form_state['values']. This
+ * hook is intended for adjusting non-field-related properties. See
  * hook_field_attach_submit() for customizing field-related properties.
  *
  * @param Node $node
@@ -780,7 +780,7 @@ function hook_node_view(Node $node, $view_mode, $langcode) {
   $node->content['my_additional_field'] = array(
     '#markup' => $additional_field,
     '#weight' => 10,
-    '#theme' => 'mymodule_my_additional_field',
+    '#theme' => 'my_module_my_additional_field',
   );
 }
 
@@ -859,7 +859,7 @@ function hook_node_view_alter(&$build) {
  */
 function hook_ranking() {
   // If voting is disabled, we can avoid returning the array, no hard feelings.
-  $config = config_get('my_module.settings');
+  $config = config('my_module.settings');
   if ($config->get('vote_node_enabled')) {
     return array(
       'vote_average' => array(
@@ -890,7 +890,7 @@ function hook_ranking() {
  * after loading, if the node type is later saved, these defaults are saved into
  * configuration.
  *
- * @param $types
+ * @param array $types
  *   An array of type information, passed by reference. Each item is keyed by
  *   the node type name, and is an array of values as loaded from the node
  *   type config file. The most common use is to populate the "settings" array
@@ -902,7 +902,7 @@ function hook_ranking() {
 function hook_node_type_load(&$types) {
   foreach ($types as $type_name => $type) {
     $types[$type_name]->settings += array(
-      'status_default' => TRUE,
+      'status_default' => NODE_PUBLISHED,
       'promote_default' => FALSE,
       'sticky_default' => FALSE,
       'revision_default' => FALSE,
@@ -914,10 +914,9 @@ function hook_node_type_load(&$types) {
 /**
  * Respond to node type creation.
  *
- * This hook is invoked from node_type_save() after the node type is added to
- * the database.
+ * This hook is invoked from node_type_save() after the node type is created.
  *
- * @param $info
+ * @param object $info
  *   The node type object that is being created.
  */
 function hook_node_type_insert($info) {
@@ -927,17 +926,16 @@ function hook_node_type_insert($info) {
 /**
  * Respond to node type updates.
  *
- * This hook is invoked from node_type_save() after the node type is updated in
- * the database.
+ * This hook is invoked from node_type_save() after the node type is updated.
  *
- * @param $info
+ * @param object $info
  *   The node type object that is being updated.
  */
 function hook_node_type_update($info) {
   // Update a setting that pointed at the old type name to the new type name.
   if (!empty($info->old_type) && $info->old_type != $info->type) {
     $config = config('my_module.settings');
-    $default_type = $config->get('defaut_node_type');
+    $default_type = $config->get('default_node_type');
     if ($default_type === $info->old_type) {
       $config->set('default_node_type', $info->type);
     }
@@ -947,10 +945,9 @@ function hook_node_type_update($info) {
 /**
  * Respond to node type deletion.
  *
- * This hook is invoked from node_type_delete() after the node type is removed
- * from the database.
+ * This hook is invoked from node_type_delete() after the node type is deleted.
  *
- * @param $info
+ * @param object $info
  *   The node type object that is being deleted.
  */
 function hook_node_type_delete($info) {
@@ -962,6 +959,37 @@ function hook_node_type_delete($info) {
     unset($enabled_types[$key]);
     $config->set('enabled_types', $enabled_types);
   }
+}
+
+/**
+ * Add to the matrix of node permissions on a node type to be
+ * displayed on the node type form. This would be used in addition to
+ * hook_permission() which supplies the actual permissions.
+ *
+ * This hook is invoked from node_type_form_permissions.
+ *
+ * @param string $type
+ *   The node type.
+ * 
+ * @since 1.34.0 Hook added.
+ */
+function hook_node_type_list_permissions($type) {
+  $perms = array();
+  foreach (node_type_get_names() as $node_type => $name) {
+    if ($type != $node_type) {
+      continue;
+    }
+    $perms += array(
+      "view own $type content" => array(
+        'title' => t('%type_name: View own content', array('%type_name' => $name)),
+      ),
+      "view any $type content" => array(
+        'title' => t('%type_name: View any content', array('%type_name' => $name)),
+      ),
+    );
+  }
+
+  return $perms;
 }
 
 /**
@@ -1014,8 +1042,8 @@ function hook_delete(Node $node) {
  * @ingroup node_api_hooks
  */
 function hook_prepare(Node $node) {
-  if (!isset($node->mymodule_value)) {
-    $node->mymodule_value = 'foo';
+  if (!isset($node->my_module_value)) {
+    $node->my_module_value = 'foo';
   }
 }
 
@@ -1222,7 +1250,7 @@ function hook_validate(Node $node, $form, &$form_state) {
  * @param Node $node
  *   The node to be displayed, as returned by node_load().
  * @param $view_mode
- *   View mode, e.g. 'full', 'teaser', ...
+ *   Display mode, e.g. 'full', 'teaser', ...
  *
  * @return
  *   The passed $node parameter should be modified as necessary and returned so
@@ -1247,7 +1275,7 @@ function hook_view(Node $node, $view_mode) {
   }
 
   $node->content['myfield'] = array(
-    '#markup' => theme('mymodule_myfield', $node->myfield),
+    '#markup' => theme('my_module_myfield', $node->myfield),
     '#weight' => 1,
   );
 

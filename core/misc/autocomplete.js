@@ -14,7 +14,7 @@ Backdrop.behaviors.autocomplete = {
       var $input = $('#' + this.id.substr(0, this.id.length - 13))
         .attr('autocomplete', 'OFF')
         .attr('aria-autocomplete', 'list');
-      $($input[0].form).submit(Backdrop.autocompleteSubmit);
+      $($input[0].form).on('submit', Backdrop.autocompleteSubmit);
       $input.parent()
         .attr('role', 'application')
         .append($('<span class="element-invisible" aria-live="assertive"></span>')
@@ -47,9 +47,9 @@ Backdrop.jsAC = function ($input, db) {
   this.db = db;
 
   $input
-    .keydown(function (event) { return ac.onkeydown(this, event); })
-    .keyup(function (event) { ac.onkeyup(this, event); })
-    .blur(function () { ac.hidePopup(); ac.db.cancel(); });
+    .on('keydown', function (event) { return ac.onkeydown(this, event); })
+    .on('keyup', function (event) { ac.onkeyup(this, event); })
+    .on('blur', function () { ac.hidePopup(); ac.db.cancel(); });
 };
 
 /**
@@ -66,6 +66,8 @@ Backdrop.jsAC.prototype.onkeydown = function (input, e) {
     case 38: // up arrow.
       this.selectUp();
       return false;
+    case 13: // Enter key.
+      return false; // Prevent form submit.
     default: // All other keys.
       return true;
   }
@@ -167,7 +169,7 @@ Backdrop.jsAC.prototype.unhighlight = function (node) {
  * Hides the autocomplete suggestions.
  */
 Backdrop.jsAC.prototype.hidePopup = function (keycode) {
-  // Select item if the right key or mousebutton was pressed.
+  // Select item if the right key or mouse button was pressed.
   if (this.selected && ((keycode && keycode !== 46 && keycode !== 8 && keycode !== 27) || !keycode)) {
     this.input.value = $(this.selected).data('autocompleteValue');
   }
@@ -186,7 +188,7 @@ Backdrop.jsAC.prototype.hidePopup = function (keycode) {
  */
 Backdrop.jsAC.prototype.populatePopup = function () {
   var $input = $(this.input);
-  var position = $input.position();
+
   // Show popup.
   if (this.popup) {
     $(this.popup).remove();
@@ -194,17 +196,38 @@ Backdrop.jsAC.prototype.populatePopup = function () {
   this.selected = false;
   this.popup = $('<div id="autocomplete"></div>')[0];
   this.popup.owner = this;
-  $(this.popup).css({
-    top: parseInt(position.top + this.input.offsetHeight, 10) + 'px',
-    left: parseInt(position.left, 10) + 'px',
-    width: $input.innerWidth() + 'px',
-    display: 'none'
-  });
-  $input.before(this.popup);
+
+  // Add the popup to the page and position.
+  $("body").prepend(this.popup);
+  var autocompleteInstance = this;
+  positionPopup();
+  Backdrop.optimizedResize.add(positionPopup, 'autocompletePopup');
 
   // Do search.
   this.db.owner = this;
   this.db.search(this.input.value);
+
+  function positionPopup() {
+    // If the popup has been removed, remove this resize handler.
+    if (!autocompleteInstance.popup) {
+      Backdrop.optimizedResize.remove('autocompletePopup');
+      return;
+    }
+
+    var offset = $input.offset();
+    var paddingLeft = parseInt($input.css('padding-left').replace('px', ''), 10);
+    var paddingRight = parseInt($input.css('padding-right').replace('px', ''), 10);
+    var paddingWidth = paddingLeft + paddingRight;
+
+    // Position "absolute" instead of "fixed" for mobile Safari compatibility.
+    // See https://github.com/backdrop/backdrop-issues/issues/6050
+    $(autocompleteInstance.popup).css({
+      top: ($input.outerHeight() + offset.top) + 'px',
+      left: offset.left + 'px',
+      width: ($input.width() + paddingWidth) + 'px',
+      position: 'absolute'
+    });
+  }
 };
 
 /**
@@ -299,8 +322,9 @@ Backdrop.ACDB.prototype.search = function (searchString) {
     // Ajax GET request for autocompletion.
     $.ajax({
       type: 'GET',
-      url: db.uri + '/' + encodeURIComponent(searchString),
+      url: Backdrop.sanitizeAjaxUrl(db.uri + '/' + encodeURIComponent(searchString)),
       dataType: 'json',
+      jsonp: false,
       success: function (matches) {
         if (typeof matches.status === 'undefined' || matches.status !== 0) {
           db.cache[searchString] = matches;
@@ -312,7 +336,7 @@ Backdrop.ACDB.prototype.search = function (searchString) {
         }
       },
       error: function (xmlhttp) {
-        alert(Backdrop.ajaxError(xmlhttp, db.uri));
+        Backdrop.displayAjaxError(Backdrop.ajaxError(xmlhttp, db.uri));
       }
     });
   }, this.delay);

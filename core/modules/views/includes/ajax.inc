@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Handles the server side AJAX interactions of Views.
@@ -25,8 +24,13 @@ function views_ajax() {
 
     $commands = array();
 
-    // Remove all of this stuff from $_GET so it doesn't end up in pagers and tablesort URLs.
-    foreach (array('view_name', 'view_display_id', 'view_args', 'view_path', 'view_dom_id', 'pager_element', 'view_base_path', 'ajax_html_ids', 'ajax_page_state') as $key) {
+    // Remove all of this stuff from $_GET so it doesn't end up in pagers and
+    // tablesort URLs.
+    foreach (array(
+      'view_name', 'view_display_id', 'view_args', 'view_path', 'view_dom_id',
+      'pager_element', 'view_base_path', 'ajax_html_ids', 'ajax_page_state',
+      'exposed_form_in_block', 'render_page_item', 'onload_page_item',
+      'enable_ajax_history', 'exclude_ajax_args') as $key) {
       if (isset($_GET[$key])) {
         unset($_GET[$key]);
       }
@@ -40,7 +44,7 @@ function views_ajax() {
 
     // Load the view.
     $view = views_get_view($name);
-    if ($view && $view->access($display_id)) {
+    if ($view && $view->access($display_id) && $view->set_display($display_id) && $view->display_handler->use_ajax()) {
       // Fix 'q' for paging.
       if (!empty($path)) {
         $_GET['q'] = $path;
@@ -53,7 +57,7 @@ function views_ajax() {
       // Overwrite the destination.
       // @see backdrop_get_destination()
       $origin_destination = $path;
-      $query = backdrop_http_build_query($_REQUEST);
+      $query = backdrop_http_build_query(backdrop_get_query_parameters());
       if ($query != '') {
         $origin_destination .= '?' . $query;
       }
@@ -164,7 +168,7 @@ function views_ajax_command_replace_title($title) {
   $command = array(
     'command' => 'viewsReplaceTitle',
     'title' => $title,
-    'siteName' => config_get('system.core', 'site_name'),
+    'siteName' => config_get_translated('system.core', 'site_name'),
   );
   return $command;
 }
@@ -215,7 +219,7 @@ function views_ajax_form_wrapper($form_id, &$form_state) {
 
     $title = empty($form_state['title']) ? '' : $form_state['title'];
     $options = array(
-      'dialogClass' => 'views-ui-dialog',
+      'classes' => array('ui-dialog' => 'views-ui-dialog'),
     );
     $commands[] = ajax_command_open_modal_dialog($title, $display, $options);
 
@@ -293,7 +297,7 @@ function views_ajax_autocomplete_taxonomy($vocabulary_name, $tags_typed = '') {
 
     $query = db_select('taxonomy_term_data', 't');
     $query->addTag('translatable');
-    $query->addTag('term_access');
+    $query->addTag('taxonomy_term_access');
 
     // Do not select already entered terms.
     if (!empty($tags_typed)) {

@@ -16,9 +16,9 @@ Backdrop.behaviors.machineName = {
        var data = e.data;
        e.preventDefault();
        data.$wrapper.show();
-       data.$target.focus();
+       data.$target.trigger('focus');
        data.$suffix.hide();
-       data.$source.unbind('.machineName');
+       data.$source.off('.machineName');
      }
 
      function machineNameHandler(e) {
@@ -126,16 +126,16 @@ Backdrop.behaviors.machineName = {
       }
 
       // If it is editable, append an edit link.
-      var $link = $('<span class="admin-link"><a href="#">' + Backdrop.t('Edit') + '</a></span>').bind('click', eventData, clickEditHandler);
+      var $link = $('<span class="admin-link"><a href="#">' + Backdrop.t('Edit') + '</a></span>').on('click', eventData, clickEditHandler);
       $suffix.append(' ').append($link);
 
       // Preview the machine name in realtime when the human-readable name
       // changes, but only if there is no machine name yet; i.e., only upon
       // initial creation, not when editing.
       if ($target.val() === '') {
-        $source.bind('keyup.machineName change.machineName', eventData, machineNameHandler)
+        $source.on('keyup.machineName change.machineName', eventData, machineNameHandler)
         // Initialize machine name preview.
-        .keyup();
+        .trigger('keyup');
       }
     });
   },
@@ -149,6 +149,7 @@ Backdrop.behaviors.machineName = {
    *   The machine name settings for the corresponding field, containing:
    *   - replace: A character to replace disallowed characters with; e.g., '_'
    *     or '-'.
+   *   - replace_token: A token to validate the regular expression.
    *   - maxlength: The maximum length of the machine name.
    *   - langcode: The language of the source string with which transliteration
    *     should be performed.
@@ -160,14 +161,15 @@ Backdrop.behaviors.machineName = {
     // Expand the settings to match the callback's input.
     // See system_transliterate_ajax().
     var transliterationOptions = {};
-    var copyOptions = ['replace', 'langcode', 'maxlength', 'replace_pattern'];
+    var copyOptions = ['replace', 'langcode', 'maxlength', 'replace_pattern', 'replace_token'];
     for (var n = 0; n < copyOptions.length; n++) {
       if (settings.hasOwnProperty(copyOptions[n])) {
         transliterationOptions[copyOptions[n]] = settings[copyOptions[n]];
       }
     }
+    var urlAppend = encodeURIComponent(source.toLowerCase());
     return $.ajax({
-      url: Backdrop.settings.basePath + "?q=" + Backdrop.encodePath("system/transliterate/" + source.toLowerCase()),
+      url: Backdrop.settings.basePath + "?q=" + Backdrop.encodePath("system/transliterate/" + urlAppend),
       data: transliterationOptions,
       dataType: "text"
     }); 

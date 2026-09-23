@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Definition of views_handler_field_date.
@@ -7,6 +6,9 @@
 
 /**
  * A handler to provide proper displays for dates.
+ *
+ * This may be used on table fields that hold either UNIX timestamps or SQL
+ * datetime strings.
  *
  * @ingroup views_field_handlers
  */
@@ -25,8 +27,8 @@ class views_handler_field_date extends views_handler_field {
 
     $date_formats = array();
     $date_types = system_get_date_formats();
-    foreach ($date_types as $machine_name => $value) {
-      $date_formats[$machine_name] = check_plain(t('@name format', array('@name' => $value['name'])) . ': ' . format_date(REQUEST_TIME, $machine_name));
+    foreach ($date_types as $machine_name => $date_type) {
+      $date_formats[$machine_name] = $date_type['label'] . ': ' . format_date(REQUEST_TIME, $machine_name);
     }
 
     $form['date_format'] = array(
@@ -47,7 +49,7 @@ class views_handler_field_date extends views_handler_field {
     $form['custom_date_format'] = array(
       '#type' => 'textfield',
       '#title' => t('Custom date format'),
-      '#description' => t('If "Custom", see the <a href="@url" target="_blank">PHP manual</a> for date formats. Otherwise, enter the number of different time units to display, which defaults to 2.', array('@url' => 'http://php.net/manual/function.date.php')),
+      '#description' => t('If "Custom", see the <a href="@url" target="_blank">PHP manual</a> for available options. Otherwise, enter the number of different time units to display, which defaults to 2.', array('@url' => 'https://www.php.net/manual/datetime.format.php#refsect1-datetime.format-parameters')),
       '#default_value' => isset($this->options['custom_date_format']) ? $this->options['custom_date_format'] : '',
     );
     $form['timezone'] = array(
@@ -66,31 +68,65 @@ class views_handler_field_date extends views_handler_field {
     parent::options_form($form, $form_state);
   }
 
-  function render($values) {
+  /**
+   * {@inheritdoc}
+   */
+  public function render($values) {
     $value = $this->get_value($values);
+
+    // Return early, nothing to do.
+    if ($value === NULL) {
+      return '';
+    }
+
+    if (!is_numeric($value)) {
+      // If the value isn't numeric, assume it's an SQL DATETIME.
+      $value = strtotime($value);
+    }
+
     $format = $this->options['date_format'];
     if (in_array($format, array('custom', 'raw time ago', 'time ago', 'raw time hence', 'time hence', 'raw time span', 'time span', 'raw time span', 'inverse time span', 'time span'))) {
       $custom_format = $this->options['custom_date_format'];
+      $granularity = is_numeric($custom_format) ? $custom_format : 2;
+      // Will be positive for a datetime in the past (ago), and negative for a
+      // datetime in the future (hence).
+      $time_diff = REQUEST_TIME - $value;
     }
 
     if ($value) {
       $timezone = !empty($this->options['timezone']) ? $this->options['timezone'] : NULL;
-      $time_diff = REQUEST_TIME - $value; // will be positive for a datetime in the past (ago), and negative for a datetime in the future (hence)
       switch ($format) {
         case 'raw time ago':
-          return format_interval($time_diff, is_numeric($custom_format) ? $custom_format : 2);
+          return format_time_diff_since($value, array(
+            'granularity' => $granularity,
+          ));
         case 'time ago':
-          return t('%time ago', array('%time' => format_interval($time_diff, is_numeric($custom_format) ? $custom_format : 2)));
+          return t('%time ago', array('%time' => format_time_diff_since($value, array(
+            'granularity' => $granularity,
+          ))));
         case 'raw time hence':
-          return format_interval(-$time_diff, is_numeric($custom_format) ? $custom_format : 2);
+          return format_time_diff_until($value, array(
+            'granularity' => $granularity,
+          ));
         case 'time hence':
-          return t('%time hence', array('%time' => format_interval(-$time_diff, is_numeric($custom_format) ? $custom_format : 2)));
+          return t('%time hence', array('%time' => format_time_diff_until($value, array(
+            'granularity' => $granularity,
+          ))));
         case 'raw time span':
-          return ($time_diff < 0 ? '-' : '') . format_interval(abs($time_diff), is_numeric($custom_format) ? $custom_format : 2);
+          return ($time_diff < 0 ? '-' : '') . format_time_diff(REQUEST_TIME, $value, array(
+            'granularity' => $granularity,
+            'strict' => FALSE,
+          ));
         case 'inverse time span':
-          return ($time_diff > 0 ? '-' : '') . format_interval(abs($time_diff), is_numeric($custom_format) ? $custom_format : 2);
+          return ($time_diff > 0 ? '-' : '') . format_time_diff(REQUEST_TIME, $value, array(
+            'granularity' => $granularity,
+            'strict' => FALSE,
+          ));
         case 'time span':
-          return t(($time_diff < 0 ? '%time hence' : '%time ago'), array('%time' => format_interval(abs($time_diff), is_numeric($custom_format) ? $custom_format : 2)));
+          return t(($time_diff < 0 ? '%time hence' : '%time ago'), array('%time' => format_time_diff(REQUEST_TIME, $value, array(
+            'granularity' => $granularity,
+            'strict' => FALSE,
+          ))));
         case 'custom':
           if ($custom_format == 'r') {
             return format_date($value, $format, $custom_format, $timezone, 'en');

@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Mass import-export and batch import functionality for Gettext .po files.
@@ -205,7 +204,7 @@ function locale_translate_add_language_set_batch($langcode) {
  *   See http://drupal.org/node/1191488.
  */
 function locale_translate_batch_import_files($langcode = NULL, $finish_feedback = FALSE) {
-  $directory = settings_get('locale_translate_file_directory', 'files/translations');
+  $directory = settings_get('locale_translate_file_directory', conf_path() . '/files/translations');
   $files = array();
   if (!empty($langcode)) {
     $langcodes = array($langcode);
@@ -267,6 +266,7 @@ function locale_translate_batch_import($filepath, &$context) {
   // The filename is either {langcode}.po or {prefix}.{langcode}.po, so
   // we can extract the language code to use for the import from the end.
   if (preg_match('!(/|\.)([^\./]+)\.po$!', $filepath, $langcode)) {
+    /** @var File $file */
     $file = entity_create('file', array(
       'filename' => backdrop_basename($filepath),
       'uri' => $filepath,

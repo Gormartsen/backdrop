@@ -5,7 +5,7 @@ group = User
 file = user.test
 
 [UserValidationTestCase]
-name = Username/e-mail validation
+name = Username/email validation
 description = Verify that username/email validity checks behave as designed.
 group = User
 file = user.test
@@ -142,6 +142,12 @@ description = Tests specific parts of the user entity like the URI callback and 
 group = User
 file = user.test
 
+[UserEditRebuildTestCase]
+name = User edit with form rebuild
+description = Test user edit page when a form rebuild is triggered.
+group = User
+file = user.test
+
 [UserPasswordResetTest]
 name = Reset password
 description = Ensure that password reset works as expected.
@@ -171,3 +177,9 @@ name = User Views integration
 description = Tests the basic integration with Views module.
 group = User
 file = user_views.test
+
+[UserLoginAppearanceTestCase]
+name = User Login Appearance test
+description = Tests the appearance of the "Log in", "Reset password", and "Create new account" pages.
+group = User
+file = user.test

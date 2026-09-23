@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Installation code for MySQL embedded database engine.
@@ -17,6 +16,20 @@ class DatabaseTasks_mysql extends DatabaseTasks {
   protected $pdoDriver = 'mysql';
 
   /**
+   * Error code for "Unknown database" error.
+   *
+   * @var int
+   */
+  protected $databaseNotFoundErrorCode = 1049;
+
+  /**
+   * Error code for "Unknown database" error.
+   *
+   * @var int
+   */
+  protected $connectionRefusedErrorCode = 2002;
+
+  /**
    * Returns a human-readable name string for MySQL and equivalent databases.
    */
   public function name() {
@@ -27,7 +40,7 @@ class DatabaseTasks_mysql extends DatabaseTasks {
    * Returns the minimum version for MySQL.
    */
   public function minimumVersion() {
-    return '5.0.15';
+    return '5.5.0';
   }
 }
 

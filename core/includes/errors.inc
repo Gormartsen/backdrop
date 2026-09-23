@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Functions for error handling.
@@ -26,11 +25,15 @@ function backdrop_error_levels() {
     E_USER_ERROR => array('User error', WATCHDOG_ERROR),
     E_USER_WARNING => array('User warning', WATCHDOG_WARNING),
     E_USER_NOTICE => array('User notice', WATCHDOG_NOTICE),
-    E_STRICT => array('Strict warning', WATCHDOG_DEBUG),
     E_RECOVERABLE_ERROR => array('Recoverable fatal error', WATCHDOG_ERROR),
     E_DEPRECATED => array('Deprecated function', WATCHDOG_DEBUG),
     E_USER_DEPRECATED => array('User deprecated function', WATCHDOG_DEBUG),
   );
+  // E_STRICT was removed from PHP 8.4 and higher, but still exists in older
+  // versions.
+  if (version_compare(PHP_VERSION, '8.4.0') < 0) {
+    $types[E_STRICT] = array('Strict warning', WATCHDOG_DEBUG);
+  }
 
   return $types;
 }
@@ -50,11 +53,15 @@ function backdrop_error_levels() {
  *   An array that points to the active symbol table at the point the error
  *   occurred.
  */
-function _backdrop_error_handler_real($error_level, $message, $filename, $line, $context) {
+function _backdrop_error_handler_real($error_level, $message, $filename, $line) {
   if ($error_level & error_reporting()) {
     $types = backdrop_error_levels();
     list($severity_msg, $severity_level) = $types[$error_level];
     $caller = _backdrop_get_last_caller(debug_backtrace());
+
+    if (empty($caller)) {
+      return FALSE;
+    }
 
     if (!function_exists('filter_xss_admin')) {
       require_once BACKDROP_ROOT . '/core/includes/common.inc';
@@ -64,7 +71,7 @@ function _backdrop_error_handler_real($error_level, $message, $filename, $line, 
     _backdrop_log_error(array(
       '%type' => isset($types[$error_level]) ? $severity_msg : 'Unknown error',
       // The standard PHP error handler considers that the error messages
-      // are HTML. We mimick this behavior here.
+      // are HTML. We mimic this behavior here.
       '!message' => filter_xss_admin($message),
       '%function' => $caller['function'],
       '%file' => $caller['file'],
@@ -77,8 +84,9 @@ function _backdrop_error_handler_real($error_level, $message, $filename, $line, 
 /**
  * Decodes an exception and retrieves the correct caller.
  *
- * @param $exception
- *   The exception object that was thrown.
+ * @param Exception|Error $exception
+ *   The exception or error object that was thrown. PHP 7 throws Error objects
+ *   for PHP errors.
  *
  * @return
  *   An error in the format expected by _backdrop_log_error().
@@ -103,8 +111,8 @@ function _backdrop_decode_exception($exception) {
       // We remove that call.
       array_shift($backtrace);
     }
-    if (isset($exception->query_string, $exception->args)) {
-      $message .= ": " . $exception->query_string . "; " . print_r($exception->args, TRUE);
+    if (isset($exception->errorInfo['query_string'], $exception->errorInfo['args'])) {
+      $message .= ": " . $exception->errorInfo['query_string'] . "; " . print_r($exception->errorInfo['args'], TRUE);
     }
   }
   $caller = _backdrop_get_last_caller($backtrace);
@@ -112,7 +120,7 @@ function _backdrop_decode_exception($exception) {
   return array(
     '%type' => get_class($exception),
     // The standard PHP exception handler considers that the exception message
-    // is plain-text. We mimick this behavior here.
+    // is plain-text. We mimic this behavior here.
     '!message' => check_plain($message),
     '%function' => $caller['function'],
     '%file' => $caller['file'],
@@ -205,7 +213,9 @@ function _backdrop_log_error($error, $fatal = FALSE) {
     $number++;
   }
 
-  watchdog('php', '%type: !message in %function (line %line of %file).', $error, $error['severity_level']);
+  // Suppress errors here in the event that the database is not accessible,
+  // preventing cascading errors.
+  @watchdog('php', '%type: !message in %function (line %line of %file).', $error, $error['severity_level']);
 
   if ($fatal) {
     backdrop_add_http_header('Status', '500 Service unavailable (with message)');
@@ -213,7 +223,7 @@ function _backdrop_log_error($error, $fatal = FALSE) {
 
   if (backdrop_is_cli()) {
     if ($fatal) {
-      // When called from CLI, simply output a plain text message.
+      // When called from CLI, output a plain text message.
       print html_entity_decode(strip_tags(t('%type: !message in %function (line %line of %file).', $error))). "\n";
       exit;
     }
@@ -221,14 +231,14 @@ function _backdrop_log_error($error, $fatal = FALSE) {
 
   if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest' && $fatal) {
     if (error_displayable($error)) {
-      // When called from JavaScript, simply output the error message.
+      // When called from JavaScript, output the error message.
       print t('%type: !message in %function (line %line of %file).', $error);
     }
     exit;
   }
   else {
     // Display the message if the current error reporting level allows this type
-    // of message to be displayed, and unconditionnaly in update.php.
+    // of message to be displayed, and unconditionally in update.php.
     if (error_displayable($error)) {
       $class = 'error';
 
@@ -245,8 +255,9 @@ function _backdrop_log_error($error, $fatal = FALSE) {
     if ($fatal) {
       backdrop_set_title(t('Error'));
       // We fallback to a maintenance page at this point, because the page generation
-      // itself can generate errors.
-      print theme('maintenance_page', array('content' => t('The website encountered an unexpected error. Please try again later.')));
+      // itself can generate errors. Provide the error message to the end-user
+      // but exclude PHP error information.
+      print theme('maintenance_page', array('content' => $error['!message']));
       exit;
     }
   }
@@ -263,10 +274,10 @@ function _backdrop_log_error($error, $fatal = FALSE) {
  */
 function _backdrop_get_last_caller($backtrace) {
   // Errors that occur inside PHP internal functions do not generate
-  // information about file and line. Ignore black listed functions.
-  $blacklist = array('debug', '_backdrop_error_handler', '_backdrop_exception_handler');
+  // information about file and line. Ignore disallowed functions.
+  $denylist = array('debug', '_backdrop_error_handler', '_backdrop_exception_handler');
   while (($backtrace && !isset($backtrace[0]['line'])) ||
-         (isset($backtrace[1]['function']) && in_array($backtrace[1]['function'], $blacklist))) {
+         (isset($backtrace[1]['function']) && in_array($backtrace[1]['function'], $denylist))) {
     array_shift($backtrace);
   }
 

@@ -1,14 +1,28 @@
-
 /**
- * jQuery Once Plugin v1.2
- * http://plugins.jquery.com/project/once
+ * jQuery Once Plugin 1.2.6
+ * http://github.com/robloach/jquery-once
  *
  * Dual licensed under the MIT and GPL licenses:
  *   http://www.opensource.org/licenses/mit-license.php
  *   http://www.gnu.org/licenses/gpl.html
+ *
+ * This library changed its function signature in its 2.x branch. This is a
+ * forked version that is jQuery 3.x compatible.
+ *
+ * See https://github.com/backdrop/backdrop-issues/issues/6195
  */
 
-(function ($) {
+(function (factory) {
+  "use strict";
+  if (typeof exports === 'object') {
+    factory(require('jquery'));
+  } else if (typeof define === 'function' && define.amd) {
+    define(['jquery'], factory);
+  } else {
+    factory(jQuery);
+  }
+}(function ($) {
+  "use strict";
   var cache = {}, uuid = 0;
 
   /**
@@ -35,9 +49,11 @@
    *   logic as $.each(). Returning true will continue to the next matched
    *   element in the set, while returning false will entirely break the
    *   iteration.
+   *
+   * @api public
    */
   $.fn.once = function (id, fn) {
-    if (typeof id != 'string') {
+    if (typeof id !== 'string') {
       // Generate a numeric ID if the id passed can't be used as a CSS class.
       if (!(id in cache)) {
         cache[id] = ++uuid;
@@ -52,7 +68,7 @@
     var name = id + '-processed';
     var elements = this.not('.' + name).addClass(name);
 
-    return $.isFunction(fn) ? elements.each(fn) : elements;
+    return typeof fn == 'function' ? elements.each(fn) : elements;
   };
 
   /**
@@ -69,11 +85,13 @@
    *   logic as $.each(). Returning true will continue to the next matched
    *   element in the set, while returning false will entirely break the
    *   iteration.
+   *
+   * @api public
    */
   $.fn.removeOnce = function (id, fn) {
     var name = id + '-processed';
     var elements = this.filter('.' + name).removeClass(name);
 
-    return $.isFunction(fn) ? elements.each(fn) : elements;
+    return typeof fn == 'function' ? elements.each(fn) : elements;
   };
-})(jQuery);
+}));

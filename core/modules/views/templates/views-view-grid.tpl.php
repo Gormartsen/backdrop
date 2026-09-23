@@ -19,6 +19,24 @@
 <?php if (!empty($title)) : ?>
   <h3><?php print $title; ?></h3>
 <?php endif; ?>
+
+<?php if (empty($deprecated_table)) : ?>
+<div class="<?php print implode(' ', $classes); ?>"<?php print backdrop_attributes($attributes); ?>>
+  <?php foreach ($rows as $row_count => $row): ?>
+    <div <?php if (!empty($row_classes[$row_count])) { print 'class="' . implode(' ', $row_classes[$row_count]) . '"';  } ?>>
+      <?php if (empty($responsive)) : ?>
+        <?php print $row; ?>
+      <?php else : ?>
+        <div class="views-grid-box-inner">
+          <?php print $row; ?>
+        </div>
+      <?php endif; ?>
+    </div>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($deprecated_table)) : ?>
 <table class="<?php print implode(' ', $classes); ?>"<?php print backdrop_attributes($attributes); ?>>
   <?php if (!empty($caption)) : ?>
     <caption><?php print $caption; ?></caption>
@@ -36,3 +54,4 @@
     <?php endforeach; ?>
   </tbody>
 </table>
+<?php endif; ?>

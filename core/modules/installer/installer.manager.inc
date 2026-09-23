@@ -1,12 +1,11 @@
 <?php
-
 /**
  * @file
  * Administrative screens and processing functions of the Installer module.
  *
  * This allows site administrators with the 'administer software updates'
  * permission to either upgrade existing projects, or download and install new
- * ones, so long as the killswitch $settings['allow_authorize_operations'] is
+ * ones, so long as the kill switch $settings['allow_authorize_operations'] is
  * still TRUE.
  *
  * To install new code, the administrator is prompted for either the URL of an
@@ -26,7 +25,7 @@
  * batch operation is responsible for downloading a single file, extracting the
  * archive, and verifying the contents. If there are any errors, the user is
  * redirected back to the first page with the error messages. If all downloads
- * were extacted and verified, the user is instead redirected to
+ * were extracted and verified, the user is instead redirected to
  * admin/update/ready, a landing page which reminds them to backup their
  * database and asks if they want to put the site offline during the update.
  * Once the user presses the "Install updates" button, they are redirected to
@@ -50,31 +49,12 @@
  * This presents a table with all projects that have available updates with
  * checkboxes to select which ones to upgrade.
  *
- * @param $context
- *   String representing the context from which we're trying to update.
- *   Allowed values are 'module', 'theme', and 'report'.
- *
  * @see installer_manager_update_form_validate()
  * @see installer_manager_update_form_submit()
  * @see installer_menu()
  * @ingroup forms
  */
-function installer_manager_update_form($form, $form_state = array(), $context) {
-  switch ($context) {
-    case 'module':
-      backdrop_set_title('Update modules');
-      break;
-    case 'theme':
-      backdrop_set_title('Update themes');
-      break;
-    case 'layout':
-      backdrop_set_title('Update layouts');
-      break;
-    case 'report':
-      backdrop_set_title('Update projects');
-      break;
-  }
-
+function installer_manager_update_form($form, $form_state) {
   if (!_installer_manager_check_backends($form, 'update')) {
     return $form;
   }
@@ -82,6 +62,57 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
   $form['#theme'] = 'installer_manager_update_form';
 
   $available = update_get_available(TRUE);
+
+  // Show a warning if zip PHP extension not loaded, but allow to browse and
+  // select available releases. Install blocked on downloading updates page.
+  module_load_include('inc', 'installer', 'installer.browser');
+  installer_browser_check_zip_loaded();
+
+  // Run some basic health checks, and show messages/warnings accordingly.
+  $settings_link = url('admin/reports/updates/settings');
+  $update_config = config('update.settings');
+  $update_interval_days = $update_config->get('update_interval_days');
+  if ($update_interval_days != 0) {
+    $frequency = array(1 => t('daily'), 7 => t('weekly'));
+    $frequency_message = t('<a href="@link">Automatic update checks are configured to run @frequency</a>.', array(
+      '@link' => $settings_link,
+      '@frequency' => $frequency[$update_interval_days],
+    ));
+    $message_type = 'info';
+  }
+  else {
+    $frequency_message = t('<a href="@link">Automatic update checks are disabled</a> and will need to be run manually.', array('@link' => $settings_link));
+    $message_type = 'warning';
+  }
+  backdrop_set_message($frequency_message, $message_type);
+
+  $update_threshold = $update_config->get('update_threshold');
+  if ($update_threshold == 'none') {
+    $email_notifications_message = t('<a href="@link">Email notifications are disabled</a> for available updates.', array('@link' => $settings_link));
+    $message_type = 'warning';
+  }
+  else {
+    $update_emails = $update_config->get('update_emails');
+    if (empty($update_emails)) {
+      $email_notifications_message = t('<a href="@link">No email address has been provided</a> for notifications about available updates.', array('@link' => $settings_link));
+      $message_type = 'warning';
+    }
+    else {
+      $recipients = implode(', ', $update_emails);
+      $email_notifications_message = t('<a href="@link">Update notifications will be sent</a> to: @recipients', array(
+        '@link' => $settings_link,
+        '@recipients' => $recipients,
+      ));
+      $message_type = 'info';
+    }
+  }
+  backdrop_set_message($email_notifications_message, $message_type);
+
+  $last = state_get('update_last_check', 0);
+  $form['last_check'] = array(
+    '#markup' => theme('update_last_check__install', array('last' => $last)),
+  );
+
   if (empty($available)) {
     $form['message'] = array(
       '#markup' => t('There was a problem getting update information. Try again later.'),
@@ -90,6 +121,7 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
   }
 
   $form['#attached']['css'][] = backdrop_get_path('module', 'installer') . '/css/installer.css';
+  $form['#attached']['js'][] = backdrop_get_path('module', 'installer') . '/js/installer.select_updates.js';
 
   // This will be a nested array. The first key is the kind of project, which
   // can be either 'enabled', 'disabled', 'manual' (projects which require
@@ -104,6 +136,14 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
 
   module_load_include('inc', 'update', 'update.compare');
   $project_data = update_calculate_project_data($available);
+
+  $project_types = array(
+    'core' => t('Core'),
+    'module' => t('Module'),
+    'theme' => t('Theme'),
+    'layout' => t('Layout template'),
+  );
+
   foreach ($project_data as $name => $project) {
     // Filter out projects which are up to date already.
     if ($project['status'] == UPDATE_CURRENT) {
@@ -112,7 +152,7 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
     // The project name to display can vary based on the info we have.
     if (!empty($project['title'])) {
       if (!empty($project['link'])) {
-        $project_name = l($project['title'], $project['link']);
+        $project_name = l($project['title'], $project['link'], array('attributes' => array('target' => '_blank')));
       }
       else {
         $project_name = check_plain($project['title']);
@@ -124,9 +164,6 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
     else {
       $project_name = check_plain($name);
     }
-    if ($project['project_type'] == 'theme' || $project['project_type'] == 'theme-disabled') {
-      $project_name .= ' ' . t('(Theme)');
-    }
 
     if (empty($project['recommended'])) {
       // If we don't know what to recommend they upgrade to, we should skip
@@ -135,29 +172,39 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
     }
 
     $recommended_release = $project['releases'][$project['recommended']];
-    $recommended_version = $recommended_release['version'] . ' ' . l(t('(Release notes)'), $recommended_release['release_link'], array('attributes' => array('title' => t('Release notes for @project_title', array('@project_title' => $project['title'])))));
+    $title_attribute = t('Release notes for @project_title', array('@project_title' => $project['title']));
+    $link_attributes = array('attributes' => array(
+      'title' => $title_attribute,
+      'target' => '_blank',
+    ));
+    $release_notes_link = l(t('release notes'), $recommended_release['release_link'], $link_attributes);
+    $recommended_version = $recommended_release['version'] . ' (' . $release_notes_link . ')';
     if ($recommended_release['version_major'] != $project['existing_major']) {
-      $recommended_version .= '<div title="Major upgrade warning" class="update-major-version-warning">' . t('This update is a major version update which means that it may not be backwards compatible with your currently running version.  It is recommended that you read the release notes and proceed at your own risk.') . '</div>';
+      $recommended_version .= '<div class="update-major-version-warning">' . t('This update is a major version update which means that it may not be backwards compatible with your currently running version. It is recommended that you read the release notes and proceed at your own risk.') . '</div>';
     }
 
     // Create an entry for this project.
     $entry = array(
       'title' => $project_name,
+      'project_type' => $project_types[$project['project_type']],
+      'project_status' => $project['project_status'] ? t('Enabled') : t('Disabled'),
       'installed_version' => $project['existing_version'],
       'recommended_version' => $recommended_version,
     );
 
+    $update_types = array(
+      'security' => t('security update available'),
+      'unsupported' => t('unsupported version installed'),
+    );
     switch ($project['status']) {
       case UPDATE_NOT_SECURE:
       case UPDATE_REVOKED:
-        $entry['title'] .= ' ' . t('(Security update)');
-        $entry['#weight'] = -2;
         $type = 'security';
+        $entry['#weight'] = -2;
         break;
 
       case UPDATE_NOT_SUPPORTED:
         $type = 'unsupported';
-        $entry['title'] .= ' ' . t('(Unsupported)');
         $entry['#weight'] = -1;
         break;
 
@@ -172,16 +219,24 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
         // Jump out of the switch and onto the next project in foreach.
         continue 2;
     }
+    if (isset($type) && isset($update_types[$type])) {
+      $entry['title'] .= ' <span class="update-type">(' . $update_types[$type] . ')</span>';
+    }
 
     $entry['#attributes'] = array('class' => array('update-' . $type));
 
-    // Backdrop CMS core needs to be upgraded manually.
-    $needs_manual = $project['project_type'] == 'core';
+    // Backdrop CMS core and contrib projects are to be able to be updated from
+    // the administrative interface. Set this option as default.
+    $update_method = 'admin_ui';
+    // If self-update is disabled, Backdrop core needs to be updated manually.
+    if ($project['project_type'] == 'core' && !config_get('installer.settings', 'core_update')) {
+      $update_method = 'manual';
+    }
 
-    if ($needs_manual) {
-      // There are no checkboxes in the 'Manual updates' table so it will be
-      // rendered by theme('table'), not theme('tableselect'). Since the data
-      // formats are incompatible, we convert now to the format expected by
+    if ($update_method == 'manual') {
+      // We don't need checkboxes in the "Manual updates" table, so it will be
+      // rendered by theme('table') instead of theme('tableselect'). Since the
+      // data formats are incompatible, we convert to the format expected by
       // theme('table').
       unset($entry['#weight']);
       $attributes = $entry['#attributes'];
@@ -197,82 +252,53 @@ function installer_manager_update_form($form, $form_state = array(), $context) {
       );
     }
 
-    // Based on what kind of project this is, save the entry into the
-    // appropriate subarray.
-    switch ($project['project_type']) {
-      case 'core':
-        // Core needs manual updates at this time.
-        $projects['manual'][$name] = $entry;
-        break;
-
-      case 'module':
-      case 'theme':
-      case 'layout':
-        $projects['enabled'][$name] = $entry;
-        break;
-
-      case 'module-disabled':
-      case 'theme-disabled':
-      case 'layout-disabled':
-        $projects['disabled'][$name] = $entry;
-        break;
-    }
+    // Split projects based on method of update.
+    $projects[$update_method][$name] = $entry;
   }
 
   if (empty($projects)) {
-    $form['message'] = array(
-      '#markup' => '<p>' . t('No updates are available for any of your projects.') . '</p>',
-    );
+    backdrop_set_message(t('Your site is up to date.'));
     return $form;
   }
 
-  $headers = array(
+  // The table header is common for both the manual and the UI updates.
+  $header = array(
     'title' => array(
       'data' => t('Name'),
       'class' => array('installer-project-name'),
     ),
+    'project_type' => t('Project type'),
+    'project_status' => t('Project status'),
     'installed_version' => t('Installed version'),
     'recommended_version' => t('Recommended version'),
   );
 
-  if (!empty($projects['enabled'])) {
+  if (!empty($projects['admin_ui'])) {
     $form['projects'] = array(
       '#type' => 'tableselect',
-      '#header' => $headers,
-      '#options' => $projects['enabled'],
+      '#header' => $header,
+      '#options' => $projects['admin_ui'],
     );
-    if (!empty($projects['disabled'])) {
-      $form['projects']['#prefix'] = '<h2>' . t('Enabled') . '</h2>';
-    }
-  }
 
-  if (!empty($projects['disabled'])) {
-    $form['disabled_projects'] = array(
-      '#type' => 'tableselect',
-      '#header' => $headers,
-      '#options' => $projects['disabled'],
-      '#weight' => 1,
-      '#prefix' => '<h2>' . t('Disabled') . '</h2>',
-    );
-  }
-
-  // If either table has been printed yet, we need a submit button and to
-  // validate the checkboxes.
-  if (!empty($projects['enabled']) || !empty($projects['disabled'])) {
     $form['actions'] = array('#type' => 'actions');
     $form['actions']['submit'] = array(
       '#type' => 'submit',
-      '#value' => t('Download these updates'),
+      '#value' => t('Download selected updates'),
+      '#id' => 'installer-download-updates',
     );
     $form['#validate'][] = 'installer_manager_update_form_validate';
   }
 
   if (!empty($projects['manual'])) {
     $prefix = '<h2>' . t('Manual updates required') . '</h2>';
-    $prefix .= '<p>' . t('Updates of Backdrop CMS core are not supported at this time.') . '</p>';
+    $prefix .= '<p>' . t('Updates of Backdrop CMS core using the web interface are disabled.') . '</p>';
+    $prefix .= '<p>' . t('You can update Backdrop CMS by replacing the old <code>/core</code> directory inside your docroot with the one included in the <a href="https://backdropcms.org" title="Home page with download option" target="_blank">latest release</a>. For detailed instructions, see the <a href="https://backdropcms.org/upgrade" target="_blank">Upgrading Backdrop CMS</a> document online.') . '</p>';
     $form['manual_updates'] = array(
       '#type' => 'markup',
-      '#markup' => theme('table', array('header' => $headers, 'rows' => $projects['manual'])),
+      '#markup' => theme('table', array(
+        'header' => $header,
+        'rows' => $projects['manual'],
+      )),
       '#prefix' => $prefix,
       '#weight' => 120,
     );
@@ -337,9 +363,10 @@ function installer_manager_update_form_submit($form, &$form_state) {
 /**
  * Batch callback: Performs actions when the download batch is completed.
  *
- * @param $success
+ * @param bool $success
  *   TRUE if the batch operation was successful, FALSE if there were errors.
- * @param $results
+ *
+ * @param array $results
  *   An associative array of results from the batch operation.
  */
 function installer_manager_download_batch_finished($success, $results) {
@@ -386,7 +413,7 @@ function installer_manager_update_ready_form($form, &$form_state) {
 
   $form['backup'] = array(
     '#prefix' => '<strong>',
-    '#markup' => t('Back up your database and site before you continue. <a href="@backup_url">Learn how</a>.', array('@backup_url' => url('http://drupal.org/node/22281'))),
+    '#markup' => t('Back up your database and site before you continue. <a href="@backup_url">Learn how</a>.', array('@backup_url' => url('https://backdropcms.org/backups'))),
     '#suffix' => '</strong>',
   );
 
@@ -420,7 +447,7 @@ function installer_manager_update_ready_form($form, &$form_state) {
  */
 function installer_manager_update_ready_form_submit($form, &$form_state) {
   // Store maintenance_mode setting so we can restore it when done.
-  $_SESSION['maintenance_mode'] = config_get('system.core', 'maintenance_mode');
+  $_SESSION['maintenance_mode'] = state_get('maintenance_mode', FALSE);
   if ($form_state['values']['maintenance_mode'] == TRUE) {
     state_set('maintenance_mode', TRUE);
   }
@@ -435,24 +462,22 @@ function installer_manager_update_ready_form_submit($form, &$form_state) {
     $projects = $_SESSION['installer_manager_update_projects'];
     unset($_SESSION['installer_manager_update_projects']);
 
-    $project_real_location = NULL;
+    $project_realpath = NULL;
     foreach ($projects as $project => $url) {
       $project_location = $directory . '/' . $project;
       $updater = Updater::factory($project_location);
-      $project_real_location = backdrop_realpath($project_location);
+      $project_realpath = backdrop_realpath($project_location);
       $updates[] = array(
         'project' => $project,
         'updater_name' => get_class($updater),
-        'local_url' => $project_real_location,
+        'local_url' => $project_realpath,
       );
     }
 
-    // If the owner of the last directory we extracted is the same as the
-    // owner of our configuration directory where we're trying to install the
-    // code, there's no need to prompt for FTP/SSH credentials. Instead, we
-    // instantiate a FileTransferLocal and invoke installer_authorize_run_update()
-    // directly.
-    if (fileowner($project_real_location) == fileowner(conf_path())) {
+    // If local transfers are allowed, there's no need to prompt for FTP/SSH
+    // credentials. Instead, we instantiate a FileTransferLocal and invoke
+    // installer_authorize_run_update() directly.
+    if (installer_manager_local_transfers_allowed()) {
       module_load_include('inc', 'installer', 'installer.authorize');
       $filetransfer = new FileTransferLocal(BACKDROP_ROOT);
       installer_authorize_run_update($filetransfer, $updates);
@@ -498,11 +523,10 @@ function installer_manager_install_form($form, &$form_state) {
   backdrop_set_title('Manual installation');
 
   $form['help_text'] = array(
-    '#prefix' => '<p>',
+    '#type' => 'help',
     '#markup' => t('You can find modules, themes, and layouts on <a href="https://backdropcms.org">backdropcms.org</a>. The following file extensions are supported: %extensions.', array(
       '%extensions' => archiver_get_extensions(),
     )),
-    '#suffix' => '</p>',
   );
 
   $form['bulk_wrapper'] = array(
@@ -543,8 +567,6 @@ function installer_manager_install_form($form, &$form_state) {
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
-    // Todo: need this so errors reload in dialog, but it stops the form from
-    // continuing.
     '#ajax' => array(
       'callback' => 'installer_manager_install_modal_callback',
     ),
@@ -569,10 +591,18 @@ function installer_manager_install_modal_callback($form, $form_state) {
     $html .= theme('status_messages');
     $html .= backdrop_render($form);
     $title = isset($form['#title']) ? $form['#title'] : 'Manual installation';
-    $commands[] = ajax_command_open_modal_dialog($title, $html, array('width' => 700, 'dialogClass' => 'layout-dialog'));
+    $commands[] = ajax_command_open_modal_dialog($title, $html, array(
+      'width' => 700,
+      'classes' => array('ui-dialog' => 'layout-dialog'),
+    ));
   }
   elseif (!empty($form_state['redirect'])) {
-    $url = url($form_state['redirect'], array('absolute' => true));
+    if (is_array($form_state['redirect'])) {
+      $url = call_user_func_array('url', $form_state['redirect']);
+    }
+    else {
+      $url = url($form_state['redirect'], array('absolute' => TRUE));
+    }
     $commands[] = ajax_command_redirect($url);
   }
 
@@ -587,11 +617,12 @@ function installer_manager_install_modal_callback($form, $form_state) {
  *
  * @param array $form
  *   Reference to the form array we're building.
+ *
  * @param string $operation
  *   The update manager operation we're in the middle of. Can be either 'update'
  *   or 'install'. Use to provide operation-specific interface text.
  *
- * @return
+ * @return bool
  *   TRUE if the update manager should continue to the next step in the
  *   workflow, or FALSE if we've hit a fatal configuration and must halt the
  *   workflow.
@@ -607,17 +638,16 @@ function _installer_manager_check_backends(&$form, $operation) {
 
   // Otherwise, show the available backends.
   $form['available_backends'] = array(
-    '#prefix' => '<p>',
-    '#suffix' => '</p>',
+    '#type' => 'help',
   );
 
   $available_backends = backdrop_get_filetransfer_info();
   if (empty($available_backends)) {
     if ($operation == 'update') {
-      $form['available_backends']['#markup'] = t('Your server does not support updating modules, themes, and layouts from this interface. Instead, update modules, themes, and layouts by uploading the new versions directly to the server, as described in the <a href="@handbook_url">handbook</a>.', array('@handbook_url' => 'http://backdropcms.org/guide/modules'));
+      $form['available_backends']['#markup'] = t('Your server does not support updating modules, themes, and layouts from this interface. Instead, update modules, themes, and layouts by uploading the new versions directly to the server, as described in the <a href="@handbook_url">handbook</a>.', array('@handbook_url' => 'https://docs.backdropcms.org/documentation/core-updates'));
     }
     else {
-      $form['available_backends']['#markup'] = t('Your server does not support installing modules, themes, and layouts from this interface. Instead, install modules, themes, and layouts by uploading them directly to the server, as described in the <a href="@handbook_url">handbook</a>.', array('@handbook_url' => 'http://backdropcms.org/guide/modules'));
+      $form['available_backends']['#markup'] = t('Your server does not support installing modules, themes, and layouts from this interface. Instead, install modules, themes, and layouts by uploading them directly to the server, as described in the <a href="@handbook_url">handbook</a>.', array('@handbook_url' => 'https://docs.backdropcms.org/documentation/core-updates'));
     }
     return FALSE;
   }
@@ -664,7 +694,7 @@ function installer_manager_install_form_validate($form, &$form_state) {
       form_set_error('bulk', t('Sorry, none of the submitted names are valid.'));
     }
 
-    // This repetitious bit here exists because there is no way to query all 
+    // This repetitious bit here exists because there is no way to query all
     // projects at once from the server. So we compromise by searching each
     // project type using a large 'items_per_page' value to get all results.
     // Since we can only query the server by project, we ask for all modules
@@ -674,19 +704,28 @@ function installer_manager_install_form_validate($form, &$form_state) {
     $not_found = array();
     module_load_include('inc', 'installer', 'installer.browser');
 
-    $modules = installer_browser_fetch_results(array('items_per_page' => 999, 'type' => 'module'));
+    $modules = installer_browser_fetch_results(array(
+      'items_per_page' => 999,
+      'type' => 'module',
+    ));
     $all_projects = $modules['projects'];
     if (!empty($modules)) {
       $listed_projects = array_keys($modules['projects']);
       $not_found = array_diff($project_names, $listed_projects);
       if ($not_found) {
-        $themes = installer_browser_fetch_results(array('items_per_page' => 999, 'type' => 'theme'));
+        $themes = installer_browser_fetch_results(array(
+          'items_per_page' => 999,
+          'type' => 'theme',
+        ));
         if (!empty($themes)) {
           $all_projects = array_merge($all_projects, $themes['projects']);
           $listed_projects = array_keys($themes['projects']);
           $not_found = array_diff($not_found, $listed_projects);
           if ($not_found) {
-            $layouts = installer_browser_fetch_results(array('items_per_page' => 999, 'type' => 'layout'));
+            $layouts = installer_browser_fetch_results(array(
+              'items_per_page' => 999,
+              'type' => 'layout',
+            ));
             if (!empty($layouts)) {
               $all_projects = array_merge($all_projects, $layouts['projects']);
               $listed_projects = array_keys($layouts['projects']);
@@ -702,7 +741,7 @@ function installer_manager_install_form_validate($form, &$form_state) {
     }
 
     // If some of the submitted names were not valid projects first check to
-    // see if any at all were valid. If some were valid, we proceed with a 
+    // see if any at all were valid. If some were valid, we proceed with a
     // warning. If not were valid, we terminate with error.
     if ($not_found) {
       $project_names = array_diff($project_names, $not_found);
@@ -722,7 +761,7 @@ function installer_manager_install_form_validate($form, &$form_state) {
       }
     }
 
-    // If there are no valid projects left, stop here
+    // If there are no valid projects left, stop here.
     if (!$project_names) {
       form_set_error('bulk', t('Sorry, none of the submitted names are valid projects.'));
     }
@@ -752,14 +791,12 @@ function installer_manager_install_form_submit($form, &$form_state) {
     $form_state['redirect'] = 'admin/installer/install/select_versions';
   }
   else {
-    $field = 'project_url';
-
     $return = installer_manager_download_project($form_state['values']['project_url']);
     if (empty($return['success'])) {
-      form_set_error($field, $return['message']);
+      form_set_error('project_url', $return['message']);
     }
-    elseif ($return['redirect']) {
-      $form_state['redirect'] = system_authorized_get_url();
+    if (!empty($return['redirect'])) {
+      $form_state['redirect'] = $return['redirect'];
     }
   }
 }
@@ -834,7 +871,6 @@ function installer_manager_download_project($url, $is_installer = FALSE) {
     );
   }
 
-
   // Unfortunately, we can only use the directory name to determine the project
   // name. Some archivers list the first file as the directory (i.e., MODULE/)
   // and others list an actual file (i.e., MODULE/README.MD).
@@ -886,22 +922,19 @@ function installer_manager_download_project($url, $is_installer = FALSE) {
     );
   }
 
-  $project_real_location = backdrop_realpath($project_location);
+  $project_realpath = backdrop_realpath($project_location);
+  $updater_name = get_class($updater);
 
-  $arguments = array(
-    'project' => $project,
-    'updater_name' => get_class($updater),
-    'local_url' => $project_real_location,
-  );
-
-  if (fileowner($project_real_location) == fileowner(conf_path())) {
+  // If the permissions of the downloaded file match those of the settings.php
+  // directory, go ahead and install the module directly.
+  if (fileowner($project_realpath) == fileowner(conf_path()) || filegroup($project_realpath) == filegroup(conf_path())) {
     module_load_include('inc', 'installer', 'installer.authorize');
     $filetransfer = new FileTransferLocal(BACKDROP_ROOT);
 
     if ($is_installer) {
       // Initialize some variables in the Batch API $context array.
-      /* @var Updater $updater */
-      $updater = new $arguments['updater_name']($project_real_location);
+      /** @var Updater $updater */
+      $updater = new $updater_name($project_realpath);
 
       try {
         if ($updater->isInstalled()) {
@@ -920,9 +953,24 @@ function installer_manager_download_project($url, $is_installer = FALSE) {
       }
     }
     else {
-      call_user_func_array('installer_authorize_run_install', array_merge(array($filetransfer), $arguments));
+      // Start the batch process to install the module but suppress redirecting
+      // to authorize.php, return the redirect instead.
+      $redirect_callback = backdrop_is_ajax() ? FALSE : 'backdrop_goto';
+      installer_authorize_run_install($filetransfer, $project, $updater_name, $project_realpath, $redirect_callback);
+
+      // Assemble the authorize.php path and go to it to complete the batch.
+      $batch = &batch_get();
+      return array(
+        'success' => TRUE,
+        'redirect' => array(
+          $batch['url'],
+          array('query' => array('op' => 'start', 'id' => $batch['id'])),
+        ),
+      );
     }
   }
+  // If permissions differ, redirect to authorize.php to copy the file as a
+  // different system user.
   else {
     if ($is_installer) {
       return array(
@@ -931,9 +979,15 @@ function installer_manager_download_project($url, $is_installer = FALSE) {
       );
     }
     else {
-      system_authorized_init('installer_authorize_run_install', backdrop_get_path('module', 'installer') . '/installer.authorize.inc', $arguments, t('Update manager'));
+      $path = backdrop_get_path('module', 'installer') . '/installer.authorize.inc';
+      system_authorized_init('installer_authorize_run_install', $path, array(
+        $project,
+        $updater_name,
+        $project_realpath,
+      ), t('Update manager'));
       return array(
-        'redirect' => TRUE,
+        'success' => TRUE,
+        'redirect' => system_authorized_get_url(),
       );
     }
   }
@@ -991,6 +1045,10 @@ function installer_manager_archive_extract($file, $directory) {
   }
 
   $archiver->extract($directory);
+
+  // Clear the file stat cache to ensure PHP picks up the new files.
+  clearstatcache();
+
   return $archiver;
 }
 
@@ -1019,7 +1077,7 @@ function installer_manager_archive_verify($project, $archive_file, $directory) {
  *
  * Returns the local path if the file has already been downloaded.
  *
- * @param $url
+ * @param string $url
  *   The URL of the file on the server.
  *
  * @return string
@@ -1073,7 +1131,10 @@ function installer_manager_batch_project_get($project, $url, &$context) {
 
   // Actually try to download the file.
   if (!($local_cache = installer_manager_file_get($url))) {
-    $context['results']['errors'][$project] = t('Failed to download %project from %url', array('%project' => $project, '%url' => $url));
+    $context['results']['errors'][$project] = t('Failed to download %project from %url', array(
+      '%project' => $project,
+      '%url' => $url,
+    ));
     return;
   }
 
@@ -1106,18 +1167,18 @@ function installer_manager_batch_project_get($project, $url, &$context) {
 /**
  * Determines if file transfers will be performed locally.
  *
- * If the server is configured such that webserver-created files have the same
- * owner as the configuration directory where new code will eventually be
- * installed, the update manager can transfer files entirely locally, without
- * changing their ownership (in other words, without prompting the user for FTP,
- * SSH or other credentials).
+ * If the server is configured so that files can be written to the configuration
+ * directory where new code will eventually be installed, and the files have
+ * the right ownership, the update manager can transfer files entirely locally,
+ * without changing their ownership (in other words, without prompting the
+ * user for FTP, SSH or other credentials).
  *
  * This server configuration is an inherent security weakness because it allows
  * a malicious webserver process to append arbitrary PHP code and then execute
  * it. However, it is supported here because it is a common configuration on
  * shared hosting, and there is nothing Backdrop can do to prevent it.
  *
- * @return
+ * @return bool
  *   TRUE if local file transfers are allowed on this server, or FALSE if not.
  *
  * @see installer_manager_update_ready_form_submit()
@@ -1126,10 +1187,10 @@ function installer_manager_batch_project_get($project, $url, &$context) {
  */
 function installer_manager_local_transfers_allowed() {
   // Compare the owner of a webserver-created temporary file to the owner of
-  // the configuration directory to determine if local transfers will be
-  // allowed.
+  // the settings file to determine if local transfers will be
+  // allowed. The conf_path() may be owned by a different user but writable.
   $temporary_file = backdrop_tempnam('temporary://', 'update_');
-  $local_transfers_allowed = fileowner($temporary_file) === fileowner(conf_path());
+  $local_transfers_allowed = (fileowner($temporary_file) === fileowner(conf_path() . "/settings.php")) && is_writable(conf_path());
 
   // Clean up. If this fails, we can ignore it (since this is just a temporary
   // file anyway).

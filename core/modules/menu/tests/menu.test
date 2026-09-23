@@ -15,6 +15,19 @@ class MenuTestCase extends BackdropWebTestCase {
     // Create users.
     $this->big_user = $this->backdropCreateUser(array('access administration pages', 'administer blocks', 'administer menu', 'create post content'));
     $this->std_user = $this->backdropCreateUser(array());
+
+    // Set the main menu link depth to unlimited.
+    $layout = layout_load('default');
+    // Assume that the menu block is the second block in the default layout.
+    $menu_uuid = $layout->positions['header'][1];
+    $menu_block = $layout->content[$menu_uuid];
+
+    // Set the menu block depth and level.
+    $menu_block->settings['block_settings']['level'] = 1;
+    $menu_block->settings['block_settings']['depth'] = 0;
+
+    // Save the layout containing the block.
+    $layout->save();
   }
 
   /**
@@ -69,16 +82,18 @@ class MenuTestCase extends BackdropWebTestCase {
     $this->assertEqual($description, $saved_item['options']['attributes']['title'], 'Saving an existing link updates the description (title attribute)');
     $this->resetMenuLink($item, $old_title);
 
-    // Test for the correct behavior of a menu link title.
-    // @see https://www.drupal.org/node/1973262
-    $item = $this->addMenuLink(0, 'user/register', 'user-menu');
-    $this->backdropGet('user/password');
-    $this->assertNoTitle('Home | Backdrop');
+    // Test for the correct behavior of user menu titles.
+    config_set('system.core', 'user_register', USER_REGISTER_VISITORS);
+    $this->addMenuLink(0, 'user/register', 'user-menu');
     $this->backdropLogout();
     $this->backdropGet('user/register');
-    $this->assertTitle($item['link_title'] . ' | Backdrop');
+    $this->assertTitle('Create new account | Backdrop CMS');
+    $this->backdropGet('user/password');
+    $this->assertTitle('Reset password | Backdrop CMS');
+    $this->backdropGet('user/login');
+    $this->assertTitle('Log in | Backdrop CMS');
     $this->backdropGet('user');
-    $this->assertNoTitle('Home | Backdrop');
+    $this->assertTitle('Log in | Backdrop CMS');
   }
 
   /**
@@ -216,6 +231,16 @@ class MenuTestCase extends BackdropWebTestCase {
     $this->assertMenuLink($item2['mlid'], array('depth' => 2, 'has_children' => 1, 'p1' => $item1['mlid'], 'p2' => $item2['mlid'], 'p3' => 0));
     $this->assertMenuLink($item3['mlid'], array('depth' => 3, 'has_children' => 0, 'p1' => $item1['mlid'], 'p2' => $item2['mlid'], 'p3' => $item3['mlid'], 'p4' => 0));
 
+    // Add 102 menu links with increasing weights.
+    $items = array();
+    for ($i = -51; $i <= 51; $i++) {
+      $items[$i] = $this->addMenuLink(0, 'node/' . $node1->nid, $menu_name, TRUE, strval($i));
+    }
+    // Make sure that the first-added and last-added items' weights don't get
+    // changed because of the old hardcoded delta = 50.
+    $this->assertMenuLink($items[-51]['mlid'], array('weight' => '-51'));
+    $this->assertMenuLink($items[51]['mlid'], array('weight' => '51'));
+
     // Verify menu links.
     $this->verifyMenuLink($item1, $node1);
     $this->verifyMenuLink($item2, $node2, $item1, $node1);
@@ -226,6 +251,23 @@ class MenuTestCase extends BackdropWebTestCase {
     $item5 = $this->addMenuLink($item4['mlid'], 'node/' . $node5->nid, $menu_name);
     $this->assertMenuLink($item4['mlid'], array('depth' => 1, 'has_children' => 1, 'p1' => $item4['mlid'], 'p2' => 0));
     $this->assertMenuLink($item5['mlid'], array('depth' => 2, 'has_children' => 0, 'p1' => $item4['mlid'], 'p2' => $item5['mlid'], 'p3' => 0));
+
+    // Add an alias to node 4 to test adding a menu link via alias.
+    $node4->path = array(
+      'pid' => NULL,
+      'source' => 'node/' . $node4->nid,
+      'alias' => 'node' . $node4->nid . '-alias',
+      'langcode' => LANGUAGE_NONE,
+      'auto' => FALSE,
+    );
+    $node4->save();
+
+    $item6 = $this->addMenuLink(0, 'node' . $node4->nid . '-alias', $menu_name);
+    $this->assertMenuLink($item6['mlid'], array('link_path' => 'node/' . $node4->nid));
+
+    // Check that the menu UI shows the alias for the node and not the source.
+    $this->backdropGet('admin/structure/menu/item/' . $item6['mlid'] . '/edit');
+    $this->assertFieldByXPath('//input[@name="link_path"]', 'node' . $node4->nid . '-alias');
 
     // Modify menu links.
     $this->modifyMenuLink($item1);
@@ -283,12 +325,19 @@ class MenuTestCase extends BackdropWebTestCase {
   /**
    * Add a menu link using the menu module UI.
    *
-   * @param integer $plid Parent menu link id.
-   * @param string $link Link path.
-   * @param string $menu_name Menu name.
-   * @return array Menu link created.
+   * @param integer $plid
+   *   Parent menu link ID.
+   * @param string $link
+   *   Link path.
+   * @param string $menu_name
+   *   Menu name.
+   * @param int $weight
+   *   Menu link weight.
+   *
+   * @return array
+   *   Menu link created.
    */
-  function addMenuLink($plid = 0, $link = '<front>', $menu_name = 'main-menu', $expanded = TRUE) {
+  function addMenuLink($plid = 0, $link = '<front>', $menu_name = 'main-menu', $expanded = TRUE, $weight = 0) {
     // View add menu link page.
     $this->backdropGet("admin/structure/menu/manage/$menu_name/add");
     $this->assertResponse(200);
@@ -301,7 +350,7 @@ class MenuTestCase extends BackdropWebTestCase {
       'enabled' => TRUE, // Use this to disable the menu and test.
       'expanded' => $expanded, // Setting this to true should test whether it works when we do the std_user tests.
       'parent' =>  $menu_name . ':' . $plid,
-      'weight' => '0',
+      'weight' => $weight,
     );
 
     // Add menu link.
@@ -310,9 +359,15 @@ class MenuTestCase extends BackdropWebTestCase {
     // Unlike most other modules, there is no confirmation message displayed.
     $this->assertText($title, 'Menu link was added');
 
+    // Resolve aliases if used.
+    $source = backdrop_lookup_path('source', $link);
+    if (empty($source)) {
+      $source = $link;
+    }
+
     $item = db_query('SELECT * FROM {menu_links} WHERE link_title = :title', array(':title' => $title))->fetchAssoc();
     $this->assertTrue(t('Menu link was found in database.'));
-    $this->assertMenuLink($item['mlid'], array('menu_name' => $menu_name, 'link_path' => $link, 'has_children' => 0, 'plid' => $plid));
+    $this->assertMenuLink($item['mlid'], array('menu_name' => $menu_name, 'link_path' => $source, 'has_children' => 0, 'plid' => $plid));
 
     return $item;
   }
@@ -342,8 +397,8 @@ class MenuTestCase extends BackdropWebTestCase {
    * @param object $parent_node Parent menu link content node.
    */
   function verifyMenuLink($item, $item_node, $parent = NULL, $parent_node = NULL) {
-    // View home page.
-    $this->backdropGet('');
+    // View user page.
+    $this->backdropGet('user');
     $this->assertResponse(200);
 
     // Verify parent menu link.
@@ -352,10 +407,10 @@ class MenuTestCase extends BackdropWebTestCase {
       $title = $parent['link_title'];
       $this->assertLink($title, 0, 'Parent menu link was displayed');
 
-      // Verify menu link link.
+      // Verify menu link.
       $this->clickLink($title);
       $title = $parent_node->title;
-      $this->assertTitle(t("@title | Backdrop", array('@title' => $title)), 'Parent menu link link target was correct');
+      $this->assertTitle(t("@title | Backdrop CMS", array('@title' => $title)), 'Parent menu link link target was correct');
     }
 
     // Verify menu link.
@@ -365,7 +420,7 @@ class MenuTestCase extends BackdropWebTestCase {
     // Verify menu link link.
     $this->clickLink($title);
     $title = $item_node->title;
-    $this->assertTitle(t("@title | Backdrop", array('@title' => $title)), 'Menu link link target was correct');
+    $this->assertTitle(t("@title | Backdrop CMS", array('@title' => $title)), 'Menu link link target was correct');
   }
 
   /**
@@ -440,7 +495,7 @@ class MenuTestCase extends BackdropWebTestCase {
     $this->assertRaw(t('The menu link %title has been deleted.', array('%title' => $title)), 'Menu link was deleted');
 
     // Verify deletion.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertNoText($title, 'Menu link was deleted');
   }
 
@@ -453,12 +508,12 @@ class MenuTestCase extends BackdropWebTestCase {
   function toggleMenuLink($item) {
     $this->disableMenuLink($item);
     // Verify menu link is absent.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertNoText($item['link_title'], 'Menu link was not displayed');
 
     $this->enableMenuLink($item);
     // Verify menu link is displayed.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertText($item['link_title'], 'Menu link was displayed');
   }
 
@@ -513,7 +568,7 @@ class MenuTestCase extends BackdropWebTestCase {
       $item['link_path'] .= '#' . $options['fragment'];
     }
     foreach ($expected_item as $key => $value) {
-      $this->assertEqual($item[$key], $value, format_string('Parameter %key had expected value.', array('%key' => $key)));
+      $this->assertEqual($item[$key], $value, format_string('Parameter %key had value %actual, expected %expected for the %path path.', array('%key' => $key, '%path' => $item['link_path'], '%actual' => $item[$key], '%expected' => $value)));
     }
   }
 
@@ -537,7 +592,7 @@ class MenuTestCase extends BackdropWebTestCase {
    * Get standard menu link.
    */
   private function getStandardMenuLink() {
-    // Retrieve menu link id of the Log out menu link, which will always be on the front page.
+    // Retrieve menu link id of the Log out menu link, which will always be on the home page.
     $mlid = db_query("SELECT mlid FROM {menu_links} WHERE module = 'system' AND router_path = 'user/logout'")->fetchField();
     $this->assertTrue($mlid > 0, 'Standard menu link id was found');
     // Load menu link.
@@ -602,6 +657,12 @@ class MenuTestCase extends BackdropWebTestCase {
  * Test menu settings for nodes.
  */
 class MenuNodeTestCase extends BackdropWebTestCase {
+
+  /**
+   * @var User
+   */
+  protected $admin_user;
+
   function setUp() {
     parent::setUp('menu');
 
@@ -626,24 +687,29 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     );
     $this->backdropPost('admin/structure/types/manage/page', $edit, t('Save content type'));
 
-    // Change default parent item to Main menu, so we can assert more
-    // easily.
+    // Change default parent item to Main menu, so we can assert more easily.
     $edit = array(
       'menu_parent' => 'main-menu:0',
     );
     $this->backdropPost('admin/structure/types/manage/page', $edit, t('Save content type'));
 
-    // Create a node.
+    // Verify that the menu link title on the node add form has the correct
+    // maxlength.
+    $this->backdropGet('node/add/page');
+    $this->assertPattern('/<input .* id="edit-menu-link-title" .* maxlength="255" .* \/>/', 'Menu link title field has correct maxlength in node add form.');
+
+    // Create a node with menu link disabled.
     $node_title = $this->randomName();
     $language = LANGUAGE_NONE;
     $edit = array(
       "title" => $node_title,
       "body[$language][0][value]" => $this->randomString(),
+      "menu[enabled]" => 0,
     );
     $this->backdropPost('node/add/page', $edit, t('Save'));
     $node = $this->backdropGetNodeByTitle($node_title);
     // Assert that there is no link for the node.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertNoLink($node_title);
 
     // Edit the node, enable the menu link setting, but skip the link title.
@@ -652,7 +718,7 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     );
     $this->backdropPost('node/' . $node->nid . '/edit', $edit, t('Save'));
     // Assert that there is no link for the node.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertNoLink($node_title);
 
     // Edit the node and create a menu link.
@@ -663,7 +729,7 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     );
     $this->backdropPost('node/' . $node->nid . '/edit', $edit, t('Save'));
     // Assert that the link exists.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertLink($node_title);
 
     $this->backdropGet('node/' . $node->nid . '/edit');
@@ -678,7 +744,7 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     $this->backdropPost('node/' . $node->nid . '/edit', array(), t('Save'));
 
     // Check that the link is still present.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertLink($node_title);
 
     // Re-enable Main menu as available menu, then remove the link.
@@ -687,13 +753,18 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     );
     $this->backdropPost('admin/structure/types/manage/page', $edit, t('Save content type'));
 
+    // Verify that the menu link title on the node edit form has the correct
+    // maxlength.
+    $this->backdropGet('node/' . $node->nid . '/edit');
+    $this->assertPattern('/<input .* id="edit-menu-link-title" .* maxlength="255" .* \/>/', 'Menu link title field has correct maxlength in node edit form.');
+
     // Edit the node and remove the menu link.
     $edit = array(
       'menu[enabled]' => FALSE,
     );
     $this->backdropPost('node/' . $node->nid . '/edit', $edit, t('Save'));
     // Assert that there is no link for the node.
-    $this->backdropGet('');
+    $this->backdropGet('user');
     $this->assertNoLink($node_title);
 
     // Add a menu link to the Administration menu.
@@ -704,13 +775,14 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     );
     menu_link_save($item);
 
-    // Assert that disabled Administration menu is not shown on the node/$nid/edit page.
+    // Assert that disabled Administration menu is not shown on the
+    // node/$nid/edit page.
     $this->backdropGet('node/' . $node->nid . '/edit');
-    $this->assertText('Provide a menu link', 'Link in not allowed menu not shown in node edit form');
+    $this->assertText('Provide a menu link', 'Link in not-allowed menu not shown in node edit form.');
     // Assert that the link is still in the Administration menu after save.
     $this->backdropPost('node/' . $node->nid . '/edit', $edit, t('Save'));
     $link = menu_link_load($item['mlid']);
-    $this->assertTrue($link, 'Link in not allowed menu still exists after saving node');
+    $this->assertTrue($link, 'Link in not-allowed menu still exists after saving node.');
 
     // Move the menu link back to the Main menu.
     $item['menu_name'] = 'main-menu';
@@ -726,10 +798,12 @@ class MenuNodeTestCase extends BackdropWebTestCase {
     menu_link_save($child_item);
     // Edit the first node.
     $this->backdropGet('node/'. $node->nid .'/edit');
-    // Assert that it is not possible to set the parent of the first node to itself or the second node.
+    // Assert that it is not possible to set the parent of the first node to
+    // itself...
     $this->assertNoOption('edit-menu-parent', 'main-menu:'. $item['mlid']);
+    // ...nor to the second node
     $this->assertNoOption('edit-menu-parent', 'main-menu:'. $child_item['mlid']);
-    // Assert that unallowed Management menu is not available in options.
+    // ...nor to the not-allowed "Management" menu.
     $this->assertNoOption('edit-menu-parent', 'management:0');
   }
 }

@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Provides a list of countries and languages based on web standards.
@@ -54,7 +53,7 @@ function standard_country_list() {
     'BM' => $t('Bermuda'),
     'BN' => $t('Brunei'),
     'BO' => $t('Bolivia'),
-    'BQ' => $t('Caribbean Netherlands'),    
+    'BQ' => $t('Caribbean Netherlands'),
     'BR' => $t('Brazil'),
     'BS' => $t('Bahamas'),
     'BT' => $t('Bhutan'),
@@ -232,10 +231,10 @@ function standard_country_list() {
     'SN' => $t('Senegal'),
     'SO' => $t('Somalia'),
     'SR' => $t('Suriname'),
-    'SS' => $t('South Sudan'),    
+    'SS' => $t('South Sudan'),
     'ST' => $t('Sao Tome and Principe'),
     'SV' => $t('El Salvador'),
-    'SX' => $t('Sint Maarten'),    
+    'SX' => $t('Sint Maarten'),
     'SY' => $t('Syria'),
     'SZ' => $t('Swaziland'),
     'TC' => $t('Turks and Caicos Islands'),
@@ -332,6 +331,7 @@ function standard_language_list() {
     'fil' => array('Filipino', 'Filipino'),
     'fo' => array('Faeroese', 'Føroyskt'),
     'fr' => array('French', 'Français'),
+    'fy' => array('Frisian', 'Frysk'),
     'ga' => array('Irish', 'Gaeilge'),
     'gd' => array('Scots Gaelic', 'Gàidhlig'),
     'gl' => array('Galician', 'Galego'),
@@ -350,6 +350,7 @@ function standard_language_list() {
     'jv' => array('Javanese', 'Basa Java'),
     'ka' => array('Georgian', 'ქართული ენა'),
     'kk' => array('Kazakh', 'Қазақ'),
+    'km' => array('Cambodian'),
     'kn' => array('Kannada', 'ಕನ್ನಡ'),
     'ko' => array('Korean', '한국어'),
     'ku' => array('Kurdish', 'Kurdî'),
@@ -364,6 +365,7 @@ function standard_language_list() {
     'ml' => array('Malayalam', 'മലയാളം'),
     'mn' => array('Mongolian', 'монгол'),
     'mr' => array('Marathi', 'मराठी'),
+    'ms' => array('Malay', 'Bahasa Melayu'),
     'mt' => array('Maltese', 'Malti'),
     'my' => array('Burmese', 'ဗမာစကား'),
     'ne' => array('Nepali', 'नेपाली'),
@@ -372,8 +374,11 @@ function standard_language_list() {
     'nn' => array('Norwegian Nynorsk', 'Nynorsk'),
     'oc' => array('Occitan', 'Occitan'),
     'or' => array('Oriya', 'ଓଡ଼ିଆ'),
+    'os' => array('Ossetian'),
     'pa' => array('Punjabi', 'ਪੰਜਾਬੀ'),
     'pl' => array('Polish', 'Polski'),
+    'prs' => array('Afghanistan Persian'),
+    'ps' => array('Pashto', /* Left-to-right marker "‭" */ 'پښتو', LANGUAGE_RTL),
     'pt' => array('Portuguese, International', 'Português, Internacional'),
     'pt-pt' => array('Portuguese, Portugal', 'Português, Portugal'),
     'pt-br' => array('Portuguese, Brazil', 'Português, Brasil'),
@@ -394,6 +399,7 @@ function standard_language_list() {
     'th' => array('Thai', 'ภาษาไทย'),
     'ti' => array('Tigrinya', 'ትግርኛ'),
     'tr' => array('Turkish', 'Türkçe'),
+    'tyv' => array('Tuvan'),
     'ug' => array('Uyghur', 'Уйғур'),
     'uk' => array('Ukrainian', 'Українська'),
     'ur' => array('Urdu', /* Left-to-right marker "‭" */ 'اردو', LANGUAGE_RTL),
@@ -416,7 +422,6 @@ function standard_timezone_country_list() {
   if (isset($timezone_countries)) {
     return $timezone_countries;
   }
-  $t = get_t();
 
   $timezone_countries = array(
     'Africa/Abidjan' => 'CI',

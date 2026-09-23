@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @file
  * Field attach API, allowing entities (nodes, users, ...) to be 'fieldable'.
@@ -141,7 +140,7 @@ define('FIELD_STORAGE_INSERT', 'insert');
  *      will be invoked (hook_field_[op])
  *    - If TRUE, the default field implementation of the field operation
  *      will be invoked (field_default_[op])
- *    Internal use only. Do not explicitely set to TRUE, but use
+ *    Internal use only. Do not explicitly set to TRUE, but use
  *    _field_invoke_default() instead.
  *  - 'deleted': If TRUE, the function will operate on deleted fields
  *    as well as non-deleted fields. If unset or FALSE, only
@@ -229,7 +228,7 @@ function _field_invoke($op, $entity_type, $entity, &$a = NULL, &$b = NULL, $opti
  *      will be invoked (hook_field_[op])
  *    - If TRUE, the default field implementation of the field operation
  *      will be invoked (field_default_[op])
- *    Internal use only. Do not explicitely set to TRUE, but use
+ *    Internal use only. Do not explicitly set to TRUE, but use
  *    _field_invoke_multiple_default() instead.
  *  - 'deleted': If TRUE, the function will operate on deleted fields
  *    as well as non-deleted fields. If unset or FALSE, only
@@ -268,6 +267,8 @@ function _field_invoke_multiple($op, $entity_type, $entities, &$a = NULL, &$b = 
   foreach ($entities as $entity) {
     // Determine the list of instances to iterate on.
     list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+    // It is null for newly created, but we need it as array key.
+    $id = (string) $id;
     $instances = _field_invoke_get_instances($entity_type, $bundle, $options);
 
     foreach ($instances as $instance) {
@@ -279,8 +280,8 @@ function _field_invoke_multiple($op, $entity_type, $entities, &$a = NULL, &$b = 
         if (!isset($fields[$field_name])) {
           $fields[$field_name] = $field;
         }
-        // Extract the field values into a separate variable, easily accessed
-        // by hook implementations.
+        // Extract the field values into a separate variable that can be
+        // accessed by hook implementations.
         // Unless a language suggestion is provided we iterate on all the
         // available languages.
         $available_languages = field_available_languages($entity_type, $field);
@@ -765,7 +766,7 @@ function field_attach_validate($entity_type, $entity, $options = array()) {
  * There are two levels of validation for fields in forms: widget
  * validation, and field validation.
  * - Widget validation steps are specific to a given widget's own form
- *   structure and UI metaphors. They are executed through FAPI's
+ *   structure and UI metaphors. They are executed through Form API's
  *   #element_validate property during normal form validation.
  * - Field validation steps are common to a given field type, independently of
  *   the specific widget being used in a given form. They are defined in the
@@ -870,7 +871,7 @@ function field_attach_submit($entity_type, $entity, $form, &$form_state, $option
 function field_attach_presave($entity_type, $entity) {
   _field_invoke('presave', $entity_type, $entity);
 
-  // Let other modules act on presaving the entity.
+  // Let other modules act on pre-saving the entity.
   module_invoke_all('field_attach_presave', $entity_type, $entity);
 }
 
@@ -1077,7 +1078,7 @@ function field_attach_delete_revision($entity_type, $entity) {
  * @param $entities
  *   An array of entities, keyed by entity id.
  * @param $view_mode
- *   View mode, e.g. 'full', 'teaser'...
+ *   Display mode, e.g. 'full' or 'teaser'.
  * @param $langcode
  *   (Optional) The language the field values are to be shown in. If no language
  *   is provided the current language is used.
@@ -1115,7 +1116,7 @@ function field_attach_prepare_view($entity_type, $entities, $view_mode, $langcod
   _field_invoke_multiple('prepare_view', $entity_type, $prepare, $null, $null, $options);
   // Then let the formatters do their own specific massaging.
   // field_default_prepare_view() takes care of dispatching to the correct
-  // formatters according to the display settings for the view mode.
+  // formatters according to the display settings for the display mode.
   _field_invoke_multiple_default('prepare_view', $entity_type, $prepare, $view_mode, $null, $options);
 }
 
@@ -1142,7 +1143,7 @@ function field_attach_prepare_view($entity_type, $entities, $view_mode, $langcod
  *     '#object' => the fieldable entity being displayed,
  *     '#entity_type' => the type of the entity being displayed,
  *     '#language' => the language of the field values being displayed,
- *     '#view_mode' => the view mode,
+ *     '#view_mode' => the display mode,
  *     '#field_name' => the name of the field,
  *     '#field_type' => the type of the field,
  *     '#formatter' => the name of the formatter,
@@ -1158,7 +1159,7 @@ function field_attach_prepare_view($entity_type, $entities, $view_mode, $langcod
  * @param $entity
  *   The entity with fields to render.
  * @param $view_mode
- *   View mode, e.g. 'full', 'teaser'...
+ *   Display mode, e.g. 'full' or 'teaser'.
  * @param $langcode
  *   The language the field values are to be shown in. If no language is
  *   provided the current language is used.
